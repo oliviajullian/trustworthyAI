@@ -5,7 +5,7 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.preprocessing import PolynomialFeatures
 import logging
-
+import tensorflow as tf
 
 class get_Reward(object):
 
@@ -86,7 +86,8 @@ class get_Reward(object):
         graph_to_int2 = []
 
         for i in range(self.maxlen):
-            graph_batch[i][i] = 0
+            # graph_batch[i,i].assign(0)
+            graph_batch = tf.tensor_scatter_nd_update(graph_batch, [[i,i]], [0])
             tt = np.int32(graph_batch[i])
             graph_to_int.append(self.baseint * i + np.int(''.join([str(ad) for ad in tt]), 2))
             graph_to_int2.append(np.int(''.join([str(ad) for ad in tt]), 2))
@@ -111,7 +112,7 @@ class get_Reward(object):
                 y_err = y_err - np.mean(y_err)
 
             else:
-                cols_TrueFalse = col > 0.5
+                cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5))
                 X_train = self.inputdata[:, cols_TrueFalse]
                 y_train = self.inputdata[:, i]
                 y_err = self.calculate_yerr(X_train, y_train)

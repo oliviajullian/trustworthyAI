@@ -12,6 +12,7 @@ class DataGenerator(object):
 
     def __init__(self, file_path, solution_path=None, normalize_flag=False, transpose_flag=False):
 
+        print(file_path)
         self.inputdata = np.load(file_path)
         self.datasize, self.d = self.inputdata.shape
 

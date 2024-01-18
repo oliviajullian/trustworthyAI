@@ -1,17 +1,20 @@
 import tensorflow as tf
-from tensorflow.contrib import distributions as distr
+from tensorflow_probability import distributions as distr
 
 
-class SingleLayerDecoder(object):
+class SingleLayerDecoder(tf.keras.layers.Layer):
 
     def __init__(self, config, is_train):
+        super().__init__()
         self.batch_size = config.batch_size    # batch size
         self.max_length = config.max_length    # input sequence length (number of cities)
         self.input_dimension = config.hidden_dim
         self.input_embed = config.hidden_dim    # dimension of embedding space (actor)
         self.max_length = config.max_length
         self.decoder_hidden_dim = config.decoder_hidden_dim
-        self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
+        # REMOVED FOR MIGRATION TO TF2: self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
+        self.initializer = tf.keras.initializers.GlorotNormal()
+
         self.decoder_activation = config.decoder_activation
         self.use_bias = config.use_bias
         self.bias_initial_value = config.bias_initial_value
@@ -24,15 +27,21 @@ class SingleLayerDecoder(object):
         self.mask_scores = []
         self.entropy = []
 
-    def decode(self, encoder_output):
-        # encoder_output is a tensor of size [batch_size, max_length, input_embed]
-        with tf.variable_scope('singe_layer_nn'):
-            W_l = tf.get_variable('weights_left', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
-            W_r = tf.get_variable('weights_right', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
-            U = tf.get_variable('U', [self.decoder_hidden_dim], initializer=self.initializer)    # Aggregate across decoder hidden dim
+        self.W_l = self.add_weight('weights_left', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
+        self.W_r = self.add_weight('weights_right', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
+        self.U = self.add_weight('U', [self.decoder_hidden_dim], initializer=self.initializer)
 
-        dot_l = tf.einsum('ijk, kl->ijl', encoder_output, W_l)
-        dot_r = tf.einsum('ijk, kl->ijl', encoder_output, W_r)
+        if self.use_bias_constant:    # Constant bias
+            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=False)
+            self.logit_bias.assign([self.bias_initial_value])
+        else:    # Learnable bias with initial value
+            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=True)
+            self.logit_bias.assign([self.bias_initial_value])
+
+
+    def decode(self, encoder_output):
+        dot_l = tf.einsum('ijk, kl->ijl', encoder_output, self.W_l)
+        dot_r = tf.einsum('ijk, kl->ijl', encoder_output, self.W_r)
 
         tiled_l = tf.tile(tf.expand_dims(dot_l, axis=2), (1, 1, self.max_length, 1))
         tiled_r = tf.tile(tf.expand_dims(dot_r, axis=1), (1, self.max_length, 1, 1))
@@ -47,14 +56,15 @@ class SingleLayerDecoder(object):
             raise NotImplementedError('Current decoder activation is not implemented yet')
 
         # final_sum is of shape (batch_size, max_length, max_length, decoder_hidden_dim)
-        logits = tf.einsum('ijkl, l->ijk', final_sum, U)    # Readability
+        logits = tf.einsum('ijkl, l->ijk', final_sum, self.U)    # Readability
 
-        if self.bias_initial_value is None:    # Randomly initialize the learnable bias
-            self.logit_bias = tf.get_variable('logit_bias', [1])
-        elif self.use_bias_constant:    # Constant bias
-            self.logit_bias =  tf.constant([self.bias_initial_value], tf.float32, name='logit_bias')
-        else:    # Learnable bias with initial value
-            self.logit_bias =  tf.Variable([self.bias_initial_value], tf.float32, name='logit_bias')
+        #
+        # if self.bias_initial_value is None:    # Randomly initialize the learnable bias
+        #     self.logit_bias = tf.get_variable('logit_bias', [1])
+        # elif self.use_bias_constant:    # Constant bias
+        #     self.logit_bias =  tf.constant([self.bias_initial_value], tf.float32, name='logit_bias')
+        # else:    # Learnable bias with initial value
+        #     self.logit_bias =  tf.Variable([self.bias_initial_value], tf.float32, name='logit_bias')
 
         if self.use_bias:    # Bias to control sparsity/density
             logits += self.logit_bias

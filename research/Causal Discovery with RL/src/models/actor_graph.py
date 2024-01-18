@@ -49,73 +49,98 @@ class Actor(object):
         self.lr2_decay_step = config.lr1_decay_step  # learning rate decay step
 
         # Tensor block holding the input sequences [Batch Size, Sequence Length, Features]
-        self.input_ = tf.placeholder(tf.float32, [self.batch_size, self.max_length, self.input_dimension],
-                                     name="input_coordinates")
-        self.reward_ = tf.placeholder(tf.float32, [self.batch_size], name='input_rewards')
-        self.graphs_ = tf.placeholder(tf.float32, [self.batch_size, self.max_length, self.max_length], name='input_graphs')
+        # REMOVED FOR MIGRATION TO TF2: Next three placeholders
+        # self.input_ = tf.placeholder(tf.float32, [self.batch_size, self.max_length, self.input_dimension],
+        #                              name="input_coordinates")
+        # self.reward_ = tf.placeholder(tf.float32, [self.batch_size], name='input_rewards')
+        # self.graphs_ = tf.placeholder(tf.float32, [self.batch_size, self.max_length, self.max_length], name='input_graphs')
 
         self.build_permutation()
         self.build_critic()
-        self.build_reward()
+        # self.build_reward() TODO: CHECK THIS CALL
         self.build_optim()
-        self.merged = tf.summary.merge_all()
+
+        # self.merged = tf.summary.merge_all() TODO: check merged summaries
 
     def build_permutation(self):
-        with tf.variable_scope("encoder"):
-            if self.config.encoder_type == 'TransformerEncoder':
-                encoder = TransformerEncoder(self.config, self.is_train)
-            elif self.config.encoder_type == 'GATEncoder':
-                encoder = GATEncoder(self.config, self.is_train)
-            else:
-                raise NotImplementedError('Current encoder type is not implemented yet!')
-            self.encoder_output = encoder.encode(self.input_)
+        # with tf.variable_scope("encoder"):
+        if self.config.encoder_type == 'TransformerEncoder':
+            self.encoder = TransformerEncoder(self.config, self.is_train)
+        elif self.config.encoder_type == 'GATEncoder':
+            self.encoder = GATEncoder(self.config, self.is_train)
+        else:
+            raise NotImplementedError('Current encoder type is not implemented yet!')
 
-        with tf.variable_scope('decoder'):
-            if self.config.decoder_type == 'SingleLayerDecoder':
-                self.decoder = SingleLayerDecoder(self.config, self.is_train)
-            elif self.config.decoder_type == 'TransformerDecoder':
-                self.decoder = TransformerDecoder(self.config, self.is_train)
-            elif self.config.decoder_type == 'BilinearDecoder':
-                self.decoder = BilinearDecoder(self.config, self.is_train)
-            elif self.config.decoder_type == 'NTNDecoder':
-                self.decoder = NTNDecoder(self.config, self.is_train)
-            else:
-                raise NotImplementedError('Current decoder type is not implemented yet!')
-
-            self.samples, self.scores, self.entropy = self.decoder.decode(self.encoder_output)
-
-            # self.samples is seq_lenthg * batch size * seq_length
-            # cal cross entropy loss * reward
-            graphs_gen = tf.transpose(tf.stack(self.samples), [1,0,2])
-
-            self.graphs = graphs_gen
-            self.graph_batch = tf.reduce_mean(graphs_gen, axis=0)
-            logits_for_rewards = tf.stack(self.scores)
-            entropy_for_rewards = tf.stack(self.entropy)
-            entropy_for_rewards = tf.transpose(entropy_for_rewards, [1, 0, 2])
-            logits_for_rewards = tf.transpose(logits_for_rewards, [1, 0, 2])
-            self.test_scores = tf.sigmoid(logits_for_rewards)[:2]
-            log_probss = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.graphs_, logits=logits_for_rewards)
-            self.log_softmax = tf.reduce_mean(log_probss, axis=[1, 2])
-            self.entropy_regularization = tf.reduce_mean(entropy_for_rewards, axis=[1,2])
-
-            variable_summaries('log_softmax', self.log_softmax, with_max_min=True)
+        # with tf.variable_scope('decoder'):
+        if self.config.decoder_type == 'SingleLayerDecoder':
+            self.decoder = SingleLayerDecoder(self.config, self.is_train)
+        elif self.config.decoder_type == 'TransformerDecoder':
+            self.decoder = TransformerDecoder(self.config, self.is_train)
+        elif self.config.decoder_type == 'BilinearDecoder':
+            self.decoder = BilinearDecoder(self.config, self.is_train)
+        elif self.config.decoder_type == 'NTNDecoder':
+            self.decoder = NTNDecoder(self.config, self.is_train)
+        else:
+            raise NotImplementedError('Current decoder type is not implemented yet!')
 
     def build_critic(self):
-        with tf.variable_scope("critic"):
-            # Critic predicts reward (parametric baseline for REINFORCE)
-            self.critic = Critic(self.config, self.is_train)
-            self.critic.predict_rewards(self.encoder_output)
+        # REMOVED FOR MIGRATION TO TF2
+        # with tf.variable_scope("critic"):
+        # Critic predicts reward (parametric baseline for REINFORCE)
+        self.critic = Critic(self.config, self.is_train)
 
-            variable_summaries('predictions', self.critic.predictions, with_max_min=True)
 
     def build_reward(self):
         with tf.name_scope('environment'):
             self.reward = self.reward_
             variable_summaries('reward', self.reward, with_max_min=True)
 
+    def call_critic_predict_rewards(self, encoder_output):
+        predictions = self.critic.predict_rewards(encoder_output)
+        variable_summaries('predictions', predictions, with_max_min=True)
+        return predictions
+
+
+    def call_1(self, input_):
+        self.encoder_output = self.encoder.encode(input_)
+        self.samples, self.scores, self.entropy = self.decoder.decode(self.encoder_output)
+
+        # self.samples is seq_lenthg * batch size * seq_length
+        # cal cross entropy loss * reward
+        graphs_gen = tf.transpose(tf.stack(self.samples), [1, 0, 2])
+
+        self.graph_batch = tf.reduce_mean(graphs_gen, axis=0)
+
+        logits_for_rewards = tf.stack(self.scores)
+        entropy_for_rewards = tf.stack(self.entropy)
+        entropy_for_rewards = tf.transpose(entropy_for_rewards, [1, 0, 2])
+        logits_for_rewards = tf.transpose(logits_for_rewards, [1, 0, 2])
+        self.test_scores = tf.sigmoid(logits_for_rewards)[:2]
+
+
+        log_probss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(graphs_gen, tf.float32), logits=logits_for_rewards)
+        self.log_softmax = tf.reduce_mean(log_probss, axis=[1, 2])
+        self.entropy_regularization = tf.reduce_mean(entropy_for_rewards, axis=[1, 2])
+
+        variable_summaries('log_softmax', self.log_softmax, with_max_min=True)
+
+        return graphs_gen
+
 
     def build_optim(self):
+        # MIGRATED TO TF2: No global step anymore TODO: CHECK
+        self.lr1 = tf.keras.optimizers.schedules.ExponentialDecay(self.lr1_start, self.lr1_decay_step,
+                                              self.lr1_decay_rate, staircase=False, name="learning_rate1")
+        # self.lr1 = tf.train.exponential_decay(self.lr1_start, self.global_step, self.lr1_decay_step,
+        #                                       self.lr1_decay_rate, staircase=False, name="learning_rate1")
+        self.opt1 = tf.keras.optimizers.Adam(learning_rate=self.lr1, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+
+        self.lr2 = tf.keras.optimizers.schedules.ExponentialDecay(self.lr2_start, self.lr2_decay_step,
+                                              self.lr2_decay_rate, staircase=False, name="learning_rate1")
+        # Optimizer
+        self.opt2 = tf.keras.optimizers.Adam(learning_rate=self.lr2, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+
+    def build_optim_old(self):
         # Update moving_mean and moving_variance for batch normalization layers
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
