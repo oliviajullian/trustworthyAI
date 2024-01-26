@@ -1,16 +1,20 @@
+import keras.layers
 import tensorflow as tf
 from tensorflow_probability import distributions as distr
 
 
-class BilinearDecoder(object):
+class BilinearDecoder(keras.layers.Layer):
 
     def __init__(self, config, is_train):
+        super().__init__()
         self.batch_size = config.batch_size    # batch size
         self.max_length = config.max_length    # input sequence length (number of cities)
         self.input_dimension = config.hidden_dim
         self.input_embed = config.hidden_dim    # dimension of embedding space (actor)
         self.max_length = config.max_length
-        self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
+        # self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
+        self.initializer = tf.keras.initializers.GlorotNormal()
+
         self.use_bias = config.use_bias
         self.bias_initial_value = config.bias_initial_value
         self.use_bias_constant = config.use_bias_constant
@@ -21,25 +25,41 @@ class BilinearDecoder(object):
         self.mask_scores = []
         self.entropy = []
 
+        # W = tf.get_variable('bilinear_weights', [self.input_embed, self.input_embed], initializer=self.initializer)
+
+        self.W  = self.add_weight("weights", shape= [self.input_embed, self.input_embed], initializer=self.initializer)
+
+        if self.use_bias_constant:    # Constant bias
+            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=False)
+            self.logit_bias.assign([self.bias_initial_value])
+        else:    # Learnable bias with initial value
+            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=True)
+            self.logit_bias.assign([self.bias_initial_value])
+
     def decode(self, encoder_output):
         # encoder_output is a tensor of size [batch_size, max_length, input_embed]
-        with tf.variable_scope('bilinear'):
-            W = tf.get_variable('bilinear_weights', [self.input_embed, self.input_embed], initializer=self.initializer)
+        # with tf.variable_scope('bilinear'):
+        #     W = tf.get_variable('bilinear_weights', [self.input_embed, self.input_embed], initializer=self.initializer)
 
-        logits = tf.einsum('ijk, kn, imn->ijm', encoder_output, W, encoder_output)    # Readability
+        logits = tf.einsum('ijk, kn, imn->ijm', encoder_output, self.W, encoder_output)    # Readability
 
-        if self.bias_initial_value is None:    # Randomly initialize the learnable bias
-            self.logit_bias = tf.get_variable('logit_bias', [1])
-        elif self.use_bias_constant:    # Constant bias
-            self.logit_bias =  tf.constant([self.bias_initial_value], tf.float32, name='logit_bias')
-        else:    # Learnable bias with initial value
-            self.logit_bias =  tf.Variable([self.bias_initial_value], tf.float32, name='logit_bias')
+        # if self.bias_initial_value is None:    # Randomly initialize the learnable bias
+        #     self.logit_bias = tf.get_variable('logit_bias', [1])
+        # elif self.use_bias_constant:    # Constant bias
+        #     self.logit_bias =  tf.constant([self.bias_initial_value], tf.float32, name='logit_bias')
+        # else:    # Learnable bias with initial value
+        #     self.logit_bias =  tf.Variable([self.bias_initial_value], tf.float32, name='logit_bias')
 
         if self.use_bias:    # Bias to control sparsity/density
             logits += self.logit_bias
+        else:
+            logits += self.logit_bias * 0.0
 
         self.adj_prob = logits
 
+        self.samples = []
+        self.mask_scores = []
+        self.entropy = []
         for i in range(self.max_length):
             position = tf.ones([encoder_output.shape[0]]) * i
             position = tf.cast(position, tf.int32)

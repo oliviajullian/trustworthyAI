@@ -1,4 +1,6 @@
 import logging
+
+import keras.layers
 import tensorflow as tf
 import numpy as np
 
@@ -20,10 +22,11 @@ def variable_summaries(name, var, with_max_min=False):
             tf.summary.scalar('min', tf.reduce_min(var))
 
 
-class Actor(object):
+class Actor(keras.layers.Layer):
     _logger = logging.getLogger(__name__)
 
     def __init__(self, config):
+        super().__init__()
         self.config = config
         self.is_train = True
         # Data config
@@ -37,13 +40,13 @@ class Actor(object):
         self.alpha = config.alpha  # moving average update
 
         # Training config (actor)
-        self.global_step = tf.Variable(0, trainable=False, name="global_step")  # global step
+        self.global_step = tf.Variable(0, trainable=False, name="global_step")  # global step | TODO: Don't need this anymore
         self.lr1_start = config.lr1_start  # initial learning rate
         self.lr1_decay_rate = config.lr1_decay_rate  # learning rate decay rate
         self.lr1_decay_step = config.lr1_decay_step  # learning rate decay step
 
         # Training config (critic)
-        self.global_step2 = tf.Variable(0, trainable=False, name="global_step2")  # global step
+        self.global_step2 = tf.Variable(0, trainable=False, name="global_step2")  # global step | TODO: Don't need this anymore
         self.lr2_start = config.lr1_start  # initial learning rate
         self.lr2_decay_rate = config.lr1_decay_rate  # learning rate decay rate
         self.lr2_decay_step = config.lr1_decay_step  # learning rate decay step
@@ -56,7 +59,7 @@ class Actor(object):
         # self.graphs_ = tf.placeholder(tf.float32, [self.batch_size, self.max_length, self.max_length], name='input_graphs')
 
         self.build_permutation()
-        self.build_critic()
+        # self.build_critic()
         # self.build_reward() TODO: CHECK THIS CALL
         self.build_optim()
 
@@ -87,7 +90,8 @@ class Actor(object):
         # REMOVED FOR MIGRATION TO TF2
         # with tf.variable_scope("critic"):
         # Critic predicts reward (parametric baseline for REINFORCE)
-        self.critic = Critic(self.config, self.is_train)
+        # self.critic = Critic(self.config, self.is_train)
+        pass
 
 
     def build_reward(self):
@@ -107,6 +111,7 @@ class Actor(object):
 
         # self.samples is seq_lenthg * batch size * seq_length
         # cal cross entropy loss * reward
+
         graphs_gen = tf.transpose(tf.stack(self.samples), [1, 0, 2])
 
         self.graph_batch = tf.reduce_mean(graphs_gen, axis=0)
@@ -118,9 +123,11 @@ class Actor(object):
         self.test_scores = tf.sigmoid(logits_for_rewards)[:2]
 
 
+
         log_probss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(graphs_gen, tf.float32), logits=logits_for_rewards)
         self.log_softmax = tf.reduce_mean(log_probss, axis=[1, 2])
         self.entropy_regularization = tf.reduce_mean(entropy_for_rewards, axis=[1, 2])
+
 
         variable_summaries('log_softmax', self.log_softmax, with_max_min=True)
 
@@ -133,12 +140,33 @@ class Actor(object):
                                               self.lr1_decay_rate, staircase=False, name="learning_rate1")
         # self.lr1 = tf.train.exponential_decay(self.lr1_start, self.global_step, self.lr1_decay_step,
         #                                       self.lr1_decay_rate, staircase=False, name="learning_rate1")
-        self.opt1 = tf.keras.optimizers.Adam(learning_rate=self.lr1, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+        self.opt = tf.keras.optimizers.Adam(learning_rate=self.lr1, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
 
-        self.lr2 = tf.keras.optimizers.schedules.ExponentialDecay(self.lr2_start, self.lr2_decay_step,
-                                              self.lr2_decay_rate, staircase=False, name="learning_rate1")
-        # Optimizer
-        self.opt2 = tf.keras.optimizers.Adam(learning_rate=self.lr2, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+        # MIGRATED TO TF2: Following code moved to critic.py
+        # self.lr2 = tf.keras.optimizers.schedules.ExponentialDecay(self.lr2_start, self.lr2_decay_step,
+        #                                       self.lr2_decay_rate, staircase=False, name="learning_rate1")
+        # # Optimizer
+        # self.opt2 = tf.keras.optimizers.Adam(learning_rate=self.lr2, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+
+    def compute_losses(self, input_, reward_, graphs_, step, critic):
+        reward_mean, reward_var = tf.nn.moments(reward_, axes=[0])
+        self.reward_batch = reward_mean
+        self.avg_baseline = self.base_op = tf.cast(self.alpha * self.avg_baseline, tf.float32) + tf.cast((1.0 - self.alpha) * reward_mean, tf.float32)
+        tf.summary.scalar('average baseline', self.avg_baseline)
+
+        self.reward_baseline = tf.stop_gradient(
+            reward_ - self.avg_baseline - critic.predictions)  # [Batch size, 1]
+        variable_summaries('reward_baseline', self.reward_baseline, with_max_min=True)
+        self.loss1 = tf.reduce_mean(self.reward_baseline * self.log_softmax, 0) - 1 * self.lr1(step) * tf.reduce_mean(
+            self.entropy_regularization, 0)
+        tf.summary.scalar('loss1', self.loss1)
+
+        weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
+        # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions,
+        #                                           weights=weights_)
+        # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions)
+        # tf.summary.scalar('loss2', self.loss2)
+
 
     def build_optim_old(self):
         # Update moving_mean and moving_variance for batch normalization layers
@@ -157,7 +185,7 @@ class Actor(object):
                 self.lr1 = tf.train.exponential_decay(self.lr1_start, self.global_step, self.lr1_decay_step,
                                                       self.lr1_decay_rate, staircase=False, name="learning_rate1")
                 # Optimizer
-                self.opt1 = tf.train.AdamOptimizer(learning_rate=self.lr1, beta1=0.9, beta2=0.99, epsilon=0.0000001)
+                self.opt = tf.train.AdamOptimizer(learning_rate=self.lr1, beta1=0.9, beta2=0.99, epsilon=0.0000001)
                 # Discounted reward
                 self.reward_baseline = tf.stop_gradient(
                     self.reward - self.avg_baseline - self.critic.predictions)  # [Batch size, 1]
@@ -166,9 +194,9 @@ class Actor(object):
                 self.loss1 = tf.reduce_mean(self.reward_baseline * self.log_softmax, 0) -  1* self.lr1 * tf.reduce_mean(self.entropy_regularization, 0)
                 tf.summary.scalar('loss1', self.loss1)
                 # Minimize step
-                gvs = self.opt1.compute_gradients(self.loss1)
+                gvs = self.opt.compute_gradients(self.loss1)
                 capped_gvs = [(tf.clip_by_norm(grad, 1.), var) for grad, var in gvs if grad is not None]  # L2 clip
-                self.train_step1 = self.opt1.apply_gradients(capped_gvs, global_step=self.global_step)
+                self.train_step1 = self.opt.apply_gradients(capped_gvs, global_step=self.global_step)
 
             with tf.name_scope('state_value'):
                 # Critic learning rate
@@ -184,4 +212,4 @@ class Actor(object):
                 # Minimize step
                 gvs2 = self.opt2.compute_gradients(self.loss2)
                 capped_gvs2 = [(tf.clip_by_norm(grad, 1.), var) for grad, var in gvs2 if grad is not None]  # L2 clip
-                self.train_step2 = self.opt1.apply_gradients(capped_gvs2, global_step=self.global_step2)
+                self.train_step2 = self.opt.apply_gradients(capped_gvs2, global_step=self.global_step2)

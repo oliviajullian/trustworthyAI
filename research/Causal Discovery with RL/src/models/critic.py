@@ -1,12 +1,15 @@
+import keras.layers
 import tensorflow as tf
 import numpy as np
 #from tqdm import tqdm
 
 
-class Critic(object):
+class Critic(keras.layers.Layer):
  
  
     def __init__(self, config, is_train):
+        super().__init__()
+
         self.config=config
 
         # Data config
@@ -23,6 +26,23 @@ class Critic(object):
 
         # Baseline setup
         self.init_baseline = 0.
+
+        self.h0 = tf.keras.layers.Dense(self.num_neurons, activation=tf.nn.relu, kernel_initializer=self.initializer)
+
+        self.w1  = self.add_weight("w1", shape= [self.num_neurons, 1], initializer=self.initializer, dtype=tf.float32)
+        self.b1  = self.add_weight("b1",initializer=self.initializer, dtype=tf.float32)
+
+        self.lr2_start = config.lr1_start  # initial learning rate
+        self.lr2_decay_rate = config.lr1_decay_rate  # learning rate decay rate
+        self.lr2_decay_step = config.lr1_decay_step  # learning rate decay step
+
+        self.lr2 = tf.keras.optimizers.schedules.ExponentialDecay(self.lr2_start, self.lr2_decay_step,
+                                              self.lr2_decay_rate, staircase=False, name="learning_rate1")
+        # Optimizer
+        self.opt = tf.keras.optimizers.Adam(learning_rate=self.lr2, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
+
+
+
  
     def predict_rewards(self, encoder_output):
         # [Batch size, Sequence Length, Num_neurons] to [Batch size, Num_neurons]
@@ -31,9 +51,26 @@ class Critic(object):
         # REMOVED FOR MIGRATION TO TF2
         # with tf.variable_scope("ffn"):
         # ffn 1
-        h0 = tf.layers.dense(frame, self.num_neurons, activation=tf.nn.relu, kernel_initializer=self.initializer)
+        x = frame
+
+        h0 = x = self.h0(frame)
+
+
         # ffn 2
-        w1 =tf.get_variable("w1", [self.num_neurons, 1], initializer=self.initializer)
-        b1 = tf.Variable(self.init_baseline, name="b1")
-        self.predictions = tf.squeeze(tf.matmul(h0, w1)+b1)
+        # w1 =tf.get_variable("w1", [self.num_neurons, 1], initializer=self.initializer)
+        # b1 = tf.Variable(self.init_baseline, name="b1")
+
+        self.predictions = tf.squeeze(tf.matmul(h0, self.w1)+self.b1)
+
         return self.predictions
+
+    def compute_losses(self, input_, reward_, graphs_, step, actor):
+
+        # self.reward_baseline = tf.stop_gradient(
+        #     reward_ - actor.avg_baseline - self.predictions)  # [Batch size, 1]
+
+        weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
+        # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions,
+        #                                           weights=weights_)
+        self.loss2 = tf.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions)
+        tf.summary.scalar('loss2', self.loss2)

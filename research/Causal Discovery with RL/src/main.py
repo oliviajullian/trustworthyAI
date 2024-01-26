@@ -21,6 +21,7 @@ import tensorflow as tf
 
 from data_loader import DataGenerator_read_data
 from models import Actor
+from models.critic import Critic
 from rewards import get_Reward
 from helpers.config_graph import get_config, print_config
 from helpers.dir_utils import create_dir
@@ -113,13 +114,15 @@ def main():
         
     # actor
     actor = Actor(config)
+    critic = Critic(config, True)
+
 
     callreward = get_Reward(actor.batch_size, config.max_length, actor.input_dimension, training_set.inputdata,
                             sl, su, lambda1_upper, score_type, reg_type, config.l1_graph_reg, False)
 
     _logger.info('Finished creating training dataset, actor model and reward class')
 
-    # TODO: TF2 migration Fix saving
+    # TODO: TF2 migration Fix saving (Sara?)
     # # Saver to save & restore all the variables.
     # variables_to_save = [v for v in tf.global_variables() if 'Adam' not in v.name]
     # saver = tf.train.Saver(var_list=variables_to_save, keep_checkpoint_every_n_hours=1.0)
@@ -164,44 +167,71 @@ def main():
     _logger.info('Starting training.')
 
     for i in (range(1, config.nb_epoch + 1)):
+        print(i, config.nb_epoch)
 
         if config.verbose:
             _logger.info('Start training for {}-th epoch'.format(i))
 
         input_batch = training_set.train_batch(actor.batch_size, actor.max_length, actor.input_dimension)
+
         # graphs_feed = sess.run(actor.graphs, feed_dict={actor.input_: input_batch})
-        output = actor.call_1(input_batch)
-        reward_feed = callreward.cal_rewards(output, lambda1, lambda2)
+        with tf.GradientTape(persistent=True) as tape:
+            output = actor.call_1(input_batch)
+            critic.predict_rewards(encoder_output=actor.encoder_output)
 
-        # max reward, max reward per batch
-        max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0]
-        max_reward_batch = float('inf')
-        max_reward_batch_score_cyc = (0, 0)
+            reward_feed = callreward.cal_rewards(output, lambda1, lambda2)
 
-        for reward_, score_, cyc_ in reward_feed:
-            if reward_ < max_reward_batch:
-                max_reward_batch = reward_
-                max_reward_batch_score_cyc = (score_, cyc_)
+            # max reward, max reward per batch
+            max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0]
+            max_reward_batch = float('inf')
+            max_reward_batch_score_cyc = (0, 0)
 
-        max_reward_batch = -max_reward_batch
+            for reward_, score_, cyc_ in reward_feed:
+                if reward_ < max_reward_batch:
+                    max_reward_batch = reward_
+                    max_reward_batch_score_cyc = (score_, cyc_)
 
-        if max_reward < max_reward_batch:
-            max_reward = max_reward_batch
-            max_reward_score_cyc = max_reward_batch_score_cyc
+            max_reward_batch = -max_reward_batch
 
-        # for average reward per batch
-        reward_batch_score_cyc = np.mean(reward_feed[:,1:], axis=0)
+            if max_reward < max_reward_batch:
+                max_reward = max_reward_batch
+                max_reward_score_cyc = max_reward_batch_score_cyc
 
-        if config.verbose:
-            _logger.info('Finish calculating reward for current batch of graph')
+            # for average reward per batch
+            reward_batch_score_cyc = np.mean(reward_feed[:,1:], axis=0)
 
-        # Get feed dict
-        feed = {actor.input_: input_batch, actor.reward_: -reward_feed[:,0], actor.graphs_:graphs_feed}
+            if config.verbose:
+                _logger.info('Finish calculating reward for current batch of graph')
 
-        summary, base_op, score_test, probs, graph_batch, \
-            reward_batch, reward_avg_baseline, train_step1, train_step2 = sess.run([actor.merged, actor.base_op,
-            actor.test_scores, actor.log_softmax, actor.graph_batch, actor.reward_batch, actor.avg_baseline, actor.train_step1,
-            actor.train_step2], feed_dict=feed)
+
+            actor.compute_losses(input_batch, reward_feed[:, 0], output, i, critic)
+            critic.compute_losses(input_batch, reward_feed[:, 0], output, i, actor)
+
+        grads_actor = tape.gradient(actor.loss1, actor.trainable_weights)
+        grads_critic = tape.gradient(critic.loss2, critic.trainable_weights)
+
+        actor.opt.apply_gradients(zip(grads_actor, actor.trainable_weights))
+        critic.opt.apply_gradients(zip(grads_critic, critic.trainable_weights))
+
+        # actor.compute_critic_loss(input_batch, reward_feed[:, 0], output, i)
+
+        # # Get feed dict
+        # feed = {actor.input_: input_batch, actor.reward_: -reward_feed[:,0], actor.graphs_:graphs_feed}
+        #
+        # summary, base_op, score_test, probs, graph_batch, \
+        #     reward_batch, reward_avg_baseline, train_step1, train_step2 = sess.run([actor.merged, actor.base_op,
+        #     actor.test_scores, actor.log_softmax, actor.graph_batch, actor.reward_batch, actor.avg_baseline, actor.train_step1,
+        #     actor.train_step2], feed_dict=feed)
+        #
+        # 0/0
+
+        score_test, probs, graph_batch, reward_batch, reward_avg_baseline =\
+            actor.test_scores, actor.log_softmax, actor.graph_batch, actor.reward_batch, actor.avg_baseline,
+
+        score_test, probs, graph_batch, reward_batch, reward_avg_baseline = score_test.numpy(),\
+            probs.numpy(), graph_batch.numpy(), reward_batch.numpy(), reward_avg_baseline.numpy()
+
+
 
         if config.verbose:
             _logger.info('Finish updating actor and critic network using reward calculated')
@@ -218,9 +248,10 @@ def main():
         max_rewards.append(max_reward_score_cyc)
 
         # logging
-        if i == 1 or i % 500 == 0:
+        if i == 1 or i % 10 == 0:
             if i >= 500:
-                writer.add_summary(summary,i)
+                # writer.add_summary(summary,i)
+                writer.flush()
 
             _logger.info('[iter {}] reward_batch: {}, max_reward: {}, max_reward_batch: {}'.format(i,
                          reward_batch, max_reward, max_reward_batch))
@@ -244,7 +275,7 @@ def main():
             fig.suptitle('Iteration: {}'.format(i))
             ax = fig.add_subplot(1, 2, 1)
             ax.set_title('recovered_graph')
-            ax.imshow(np.around(graph_batch.T).astype(int),cmap=plt.cm.gray)
+            ax.imshow(np.around(graph_batch).astype(int),cmap=plt.cm.gray)
             ax = fig.add_subplot(1, 2, 2)
             ax.set_title('ground truth')
             ax.imshow(training_set.true_graph, cmap=plt.cm.gray)

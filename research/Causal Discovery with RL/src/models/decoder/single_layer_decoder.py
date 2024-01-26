@@ -31,6 +31,7 @@ class SingleLayerDecoder(tf.keras.layers.Layer):
         self.W_r = self.add_weight('weights_right', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
         self.U = self.add_weight('U', [self.decoder_hidden_dim], initializer=self.initializer)
 
+
         if self.use_bias_constant:    # Constant bias
             self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=False)
             self.logit_bias.assign([self.bias_initial_value])
@@ -68,9 +69,14 @@ class SingleLayerDecoder(tf.keras.layers.Layer):
 
         if self.use_bias:    # Bias to control sparsity/density
             logits += self.logit_bias
+        else:
+            logits += self.logit_bias*0.0 # This is to prevent TF complaining about gradients not existing
 
         self.adj_prob = logits
 
+        self.samples = []
+        self.mask_scores = []
+        self.entropy = []
         for i in range(self.max_length):
             position = tf.ones([encoder_output.shape[0]]) * i
             position = tf.cast(position, tf.int32)

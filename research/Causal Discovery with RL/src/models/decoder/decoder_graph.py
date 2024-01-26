@@ -1,3 +1,5 @@
+# TOOD: This file is not upgraded to TF2. It is not being used anywhere.
+
 import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMCell, GRUCell, MultiRNNCell, DropoutWrapper
 from tensorflow.contrib import distributions as distr
