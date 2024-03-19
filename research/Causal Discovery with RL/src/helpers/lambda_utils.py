@@ -20,10 +20,10 @@ def BIC_input_graph(X, g, reg_type='LR', score_type='BIC'):
     poly = PolynomialFeatures()
 
     for i in range(d):
-        y_ = X[:, [i]]
+        y_ = X[:, [i]]   #it separates the feature corresponding to the current index i from the rest of the data.
         inds_x = list(np.abs(g[i])>0.1)
 
-        if np.sum(inds_x) < 0.1: 
+        if np.sum(inds_x) < 0.1:   
             y_pred = np.mean(y_)
         else:
             X_ = X[:, inds_x]
@@ -76,16 +76,17 @@ def BIC_lambdas(X, gl=None, gu=None, gtrue=None, reg_type='LR', score_type='BIC'
     if gu is None:
         gu = np.zeros((d, d))
 
-    sl = BIC_input_graph(X, gl, reg_type, score_type)
-    su = BIC_input_graph(X, gu, reg_type, score_type) 
+    sl = BIC_input_graph(X, gl, reg_type, score_type) # Bic score for lower bound graph
+    su = BIC_input_graph(X, gu, reg_type, score_type) # Bic score for upper bound graph
 
     if gtrue is None:
         strue = sl - 10
     else:
-        print(BIC_input_graph(X, gtrue, reg_type, score_type))
+        print(BIC_input_graph(X, gtrue, reg_type, score_type))  #print initial BIC score for true graph
         print(gtrue)
         print(bic_penalty)
-        strue = BIC_input_graph(X, gtrue, reg_type, score_type) + np.sum(gtrue) * bic_penalty
-    
-    return sl, su, strue
+        strue = BIC_input_graph(X, gtrue, reg_type, score_type) + np.sum(gtrue) * bic_penalty  #final score for true graph with penalty
+        #notice that penalty discourages the use of more variables in the model (more edges in the graph)
+        #so the score is penalized with the number of edges in the graph
+    return sl, su, strue  #return lower bound, upper bound and true score
 

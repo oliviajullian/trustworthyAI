@@ -26,6 +26,8 @@ class DataGenerator(object):
             if transpose_flag: 
                 gtrue = np.transpose(gtrue)
 
+        print("gtrue", gtrue)
+
         # (i,j)=1 => node i -> node j
         self.true_graph = np.int32(np.abs(gtrue) > 1e-3)
 

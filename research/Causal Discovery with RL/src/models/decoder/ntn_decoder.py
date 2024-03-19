@@ -16,7 +16,7 @@ class NTNDecoder(keras.layers.Layer):
 
         # REMOVED FOR MIGRATION TO TF2: self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
         # self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
-        self.initializer = tf.keras.initializers.GlorotNormal()
+        self.initializer = tf.keras.initializers.GlorotUniform()
 
         self.decoder_activation = config.decoder_activation
         self.use_bias = config.use_bias
@@ -86,7 +86,7 @@ class NTNDecoder(keras.layers.Layer):
         bilinear_product = tf.einsum('ijk, knl, imn->ijml', encoder_output, self.W, encoder_output)
 
         if self.decoder_activation == 'tanh':    # Original implementation by paper
-            final_sum = tf.nn.tanh(bilinear_product + linear_sum + self.B)
+            final_sum = tf.nn.tanh(bilinear_product + linear_sum + self.B) # value between -1 and 1
         elif self.decoder_activation == 'relu':
             final_sum = tf.nn.relu(bilinear_product + linear_sum + self.B)
         elif self.decoder_activation == 'none':    # Without activation function

@@ -81,7 +81,7 @@ def graph_prunned_by_coef_2nd(graph_batch, X, th=0.3):
 
         X_train = X[:, col]
         X_train_expand = poly.fit_transform(X_train)[:, 1:]
-        X_train_expand_names =  poly.get_feature_names()[1:]
+        X_train_expand_names =  poly.get_feature_names_out()[1:]
         
         y = X[:, i]
         reg.fit(X_train_expand, y)

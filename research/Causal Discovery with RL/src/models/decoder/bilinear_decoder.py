@@ -13,7 +13,7 @@ class BilinearDecoder(keras.layers.Layer):
         self.input_embed = config.hidden_dim    # dimension of embedding space (actor)
         self.max_length = config.max_length
         # self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
-        self.initializer = tf.keras.initializers.GlorotNormal()
+        self.initializer = tf.keras.initializers.GlorotUniform()
 
         self.use_bias = config.use_bias
         self.bias_initial_value = config.bias_initial_value

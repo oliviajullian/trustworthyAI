@@ -21,7 +21,7 @@ class Critic(keras.layers.Layer):
         self.input_embed = config.hidden_dim 
         self.num_neurons = config.hidden_dim 
         # REMOVED FOR MIGRATION TO TF2: self.initializer = tf.contrib.layers.xavier_initializer()
-        self.initializer = tf.keras.initializers.GlorotNormal()
+        self.initializer = tf.keras.initializers.GlorotUniform(seed=42)
 
 
         # Baseline setup
@@ -30,7 +30,7 @@ class Critic(keras.layers.Layer):
         self.h0 = tf.keras.layers.Dense(self.num_neurons, activation=tf.nn.relu, kernel_initializer=self.initializer)
 
         self.w1  = self.add_weight("w1", shape= [self.num_neurons, 1], initializer=self.initializer, dtype=tf.float32)
-        self.b1  = self.add_weight("b1",initializer=self.initializer, dtype=tf.float32)
+        self.b1  = self.add_weight("b1",initializer=self.initializer, dtype=tf.float32)   # shuld be self.init_baseline?
 
         self.lr2_start = config.lr1_start  # initial learning rate
         self.lr2_decay_rate = config.lr1_decay_rate  # learning rate decay rate
@@ -46,7 +46,7 @@ class Critic(keras.layers.Layer):
  
     def predict_rewards(self, encoder_output):
         # [Batch size, Sequence Length, Num_neurons] to [Batch size, Num_neurons]
-        frame = tf.reduce_mean(encoder_output, 1) 
+        frame = tf.reduce_mean(encoder_output, 1)  
 
         # REMOVED FOR MIGRATION TO TF2
         # with tf.variable_scope("ffn"):
@@ -60,7 +60,7 @@ class Critic(keras.layers.Layer):
         # w1 =tf.get_variable("w1", [self.num_neurons, 1], initializer=self.initializer)
         # b1 = tf.Variable(self.init_baseline, name="b1")
 
-        self.predictions = tf.squeeze(tf.matmul(h0, self.w1)+self.b1)
+        self.predictions = tf.squeeze(tf.matmul(h0, self.w1)+self.b1) # remove dimensions of shape 1
 
         return self.predictions
 
@@ -72,5 +72,7 @@ class Critic(keras.layers.Layer):
         weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
         # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions,
         #                                           weights=weights_)
-        self.loss2 = tf.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions)
+        self.loss2 = tf.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions) # measure difference between actual returns (adjusted for baseline) and predictions of the critic
         tf.summary.scalar('loss2', self.loss2)
+
+        print("XYPS LOSS 2", self.loss2)

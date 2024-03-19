@@ -7,7 +7,7 @@ import numpy as np
 from .encoder import TransformerEncoder, GATEncoder
 from .decoder import TransformerDecoder, SingleLayerDecoder, BilinearDecoder, NTNDecoder
 from .critic import Critic
-
+from helpers.debugger import print_mine
 
 # Tensor summaries for TensorBoard visualization
 def variable_summaries(name, var, with_max_min=False):
@@ -21,6 +21,20 @@ def variable_summaries(name, var, with_max_min=False):
             tf.summary.scalar('max', tf.reduce_max(var))
             tf.summary.scalar('min', tf.reduce_min(var))
 
+#Migrated? ^
+'''
+def variable_summaries(name, var, step, with_max_min=False):
+    with tf.name_scope(name):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean, step=step)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev, step=step)
+        if with_max_min:
+            tf.summary.scalar('max', tf.reduce_max(var), step=step)
+            tf.summary.scalar('min', tf.reduce_min(var), step=step)
+'''
+
 
 class Actor(keras.layers.Layer):
     _logger = logging.getLogger(__name__)
@@ -33,6 +47,10 @@ class Actor(keras.layers.Layer):
         self.batch_size = config.batch_size  # batch size
         self.max_length = config.max_length  
         self.input_dimension = config.input_dimension  
+
+        #self.log_dir = config.log_dir  # Added fro tf2 TODO check
+        #self.summary_writer = tf.summary.create_file_writer(self.log_dir) #added for TODO tf2 check
+        
 
         # Reward config
         self.avg_baseline = tf.Variable(config.init_baseline, trainable=False,
@@ -62,6 +80,8 @@ class Actor(keras.layers.Layer):
         # self.build_critic()
         # self.build_reward() TODO: CHECK THIS CALL
         self.build_optim()
+
+        self.critic = Critic(config, True)
 
         # self.merged = tf.summary.merge_all() TODO: check merged summaries
 
@@ -106,15 +126,23 @@ class Actor(keras.layers.Layer):
 
 
     def call_1(self, input_):
+
         self.encoder_output = self.encoder.encode(input_)
+
         self.samples, self.scores, self.entropy = self.decoder.decode(self.encoder_output)
+
+
+        #print("self.samples:===========")
+       # print(self.samples)
 
         # self.samples is seq_lenthg * batch size * seq_length
         # cal cross entropy loss * reward
 
         graphs_gen = tf.transpose(tf.stack(self.samples), [1, 0, 2])
-
-        self.graph_batch = tf.reduce_mean(graphs_gen, axis=0)
+        #print("graphs_gen")
+        #print(graphs_gen)
+        #self.graph_batch = tf.reduce_mean(graphs_gen, axis=0)
+        self.graph_batch = tf.reduce_mean(tf.cast(graphs_gen, dtype=tf.float32), axis=0)
 
         logits_for_rewards = tf.stack(self.scores)
         entropy_for_rewards = tf.stack(self.entropy)
@@ -149,9 +177,11 @@ class Actor(keras.layers.Layer):
         # self.opt2 = tf.keras.optimizers.Adam(learning_rate=self.lr2, beta_1=0.9, beta_2=0.99, epsilon=0.0000001)
 
     def compute_losses(self, input_, reward_, graphs_, step, critic):
-        reward_mean, reward_var = tf.nn.moments(reward_, axes=[0])
+        reward_mean, reward_var = tf.nn.moments(reward_, axes=[0]) # calculate mean and variance of rewards
         self.reward_batch = reward_mean
         self.avg_baseline = self.base_op = tf.cast(self.alpha * self.avg_baseline, tf.float32) + tf.cast((1.0 - self.alpha) * reward_mean, tf.float32)
+        #with self.summary_writer.as_default():
+        #    tf.summary.scalar('average baseline', self.avg_baseline, step=step)
         tf.summary.scalar('average baseline', self.avg_baseline)
 
         self.reward_baseline = tf.stop_gradient(
@@ -160,6 +190,11 @@ class Actor(keras.layers.Layer):
         self.loss1 = tf.reduce_mean(self.reward_baseline * self.log_softmax, 0) - 1 * self.lr1(step) * tf.reduce_mean(
             self.entropy_regularization, 0)
         tf.summary.scalar('loss1', self.loss1)
+
+        print("XYPS LOSS 1", self.loss1)
+
+        #with self.summary_writer.as_default():
+        #    tf.summary.scalar('loss1', self.loss1, step=step)
 
         weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
         # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions,
@@ -208,7 +243,9 @@ class Actor(keras.layers.Layer):
                 weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
                 self.loss2 = tf.losses.mean_squared_error(self.reward - self.avg_baseline, self.critic.predictions,
                                                           weights=weights_)
-                tf.summary.scalar('loss2', self.loss2)
+                tf.summary.scalarself.loss2('loss2', self.loss2)
+
+
                 # Minimize step
                 gvs2 = self.opt2.compute_gradients(self.loss2)
                 capped_gvs2 = [(tf.clip_by_norm(grad, 1.), var) for grad, var in gvs2 if grad is not None]  # L2 clip

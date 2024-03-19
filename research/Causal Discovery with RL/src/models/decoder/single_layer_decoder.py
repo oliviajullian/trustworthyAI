@@ -1,6 +1,8 @@
 import tensorflow as tf
 from tensorflow_probability import distributions as distr
 
+from helpers.debugger import print_mine
+
 
 class SingleLayerDecoder(tf.keras.layers.Layer):
 
@@ -13,7 +15,7 @@ class SingleLayerDecoder(tf.keras.layers.Layer):
         self.max_length = config.max_length
         self.decoder_hidden_dim = config.decoder_hidden_dim
         # REMOVED FOR MIGRATION TO TF2: self.initializer = tf.contrib.layers.xavier_initializer() # variables initializer
-        self.initializer = tf.keras.initializers.GlorotNormal()
+        self.initializer = tf.keras.initializers.GlorotUniform()
 
         self.decoder_activation = config.decoder_activation
         self.use_bias = config.use_bias
@@ -88,6 +90,7 @@ class SingleLayerDecoder(tf.keras.layers.Layer):
             prob = distr.Bernoulli(masked_score)    # probs input probability, logit input log_probability
 
             sampled_arr = prob.sample()    # Batch_size, seqlenght for just one node
+
 
             self.samples.append(sampled_arr)
             self.mask_scores.append(masked_score)

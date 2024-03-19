@@ -102,7 +102,7 @@ class TransformerDecoder(keras.layers.Layer):
         self.max_length = config.max_length
 
         # self.initializer = tf.contrib.layers.xavier_initializer()  # variables initializer
-        self.initializer = tf.keras.initializers.GlorotNormal()
+        self.initializer = tf.keras.initializers.GlorotUniform()
 
         self.is_training = is_train
 

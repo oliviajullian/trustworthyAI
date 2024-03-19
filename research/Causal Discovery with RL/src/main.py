@@ -70,6 +70,8 @@ def main():
         file_path = '{}/data.npy'.format(config.data_path)
         solution_path = '{}/DAG.npy'.format(config.data_path)
         training_set = DataGenerator_read_data(file_path, solution_path, config.normalize, config.transpose)
+        print("This is training_set", training_set)
+        print(training_set.inputdata)
     else:
         raise ValueError("Only support importing data from existing files")
         
@@ -84,7 +86,7 @@ def main():
         lambda1 = 0
         lambda1_upper = 5
         lambda1_update_add = 1
-        lambda2 = 1/(10**(np.round(config.max_length/3)))
+        lambda2 = 1/(10**(np.round(config.max_length/3))) #config.max_length is the number of nodes
         lambda2_upper = 0.01
         lambda2_update_mul = 10
         lambda_iter_num = config.lambda_iter_num
@@ -114,8 +116,9 @@ def main():
         
     # actor
     actor = Actor(config)
-    critic = Critic(config, True)
+    # critic = Critic(config, True)
 
+    print("actor.batch", actor.batch_size)
 
     callreward = get_Reward(actor.batch_size, config.max_length, actor.input_dimension, training_set.inputdata,
                             sl, su, lambda1_upper, score_type, reg_type, config.l1_graph_reg, False)
@@ -176,13 +179,17 @@ def main():
 
         # graphs_feed = sess.run(actor.graphs, feed_dict={actor.input_: input_batch})
         with tf.GradientTape(persistent=True) as tape:
+            #print("input_batch=====")
+            #print(input_batch)
             output = actor.call_1(input_batch)
-            critic.predict_rewards(encoder_output=actor.encoder_output)
+            #print("output", output)
+
+            actor.critic.predict_rewards(encoder_output=actor.encoder_output)
 
             reward_feed = callreward.cal_rewards(output, lambda1, lambda2)
 
             # max reward, max reward per batch
-            max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0]
+            max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0] 
             max_reward_batch = float('inf')
             max_reward_batch_score_cyc = (0, 0)
 
@@ -198,20 +205,23 @@ def main():
                 max_reward_score_cyc = max_reward_batch_score_cyc
 
             # for average reward per batch
-            reward_batch_score_cyc = np.mean(reward_feed[:,1:], axis=0)
+            reward_batch_score_cyc = np.mean(reward_feed[:,1:], axis=0) # (avg score, avg cy) : mean of score and cycness of all graphs in the batch
 
             if config.verbose:
                 _logger.info('Finish calculating reward for current batch of graph')
 
 
-            actor.compute_losses(input_batch, reward_feed[:, 0], output, i, critic)
-            critic.compute_losses(input_batch, reward_feed[:, 0], output, i, actor)
+            actor.compute_losses(input_batch, reward_feed[:, 0], output, i, actor.critic)
+            actor.critic.compute_losses(input_batch, reward_feed[:, 0], output, i, actor)
 
-        grads_actor = tape.gradient(actor.loss1, actor.trainable_weights)
-        grads_critic = tape.gradient(critic.loss2, critic.trainable_weights)
+        grads_actor = tape.gradient(actor.loss1, actor.trainable_weights) # list of tensors corresponding to the gradients of the loss with respect to the trainable weight
+        grads_critic = tape.gradient(actor.critic.loss2, actor.trainable_weights)
+
+        grads_actor = [tf.clip_by_norm(grad, 1.)  if grad is not None else None for grad in grads_actor]
+        grads_critic = [tf.clip_by_norm(grad, 1.)  if grad is not None else None for grad in grads_critic]
 
         actor.opt.apply_gradients(zip(grads_actor, actor.trainable_weights))
-        critic.opt.apply_gradients(zip(grads_critic, critic.trainable_weights))
+        actor.critic.opt.apply_gradients(zip(grads_critic, actor.trainable_weights))
 
         # actor.compute_critic_loss(input_batch, reward_feed[:, 0], output, i)
 
@@ -229,7 +239,7 @@ def main():
             actor.test_scores, actor.log_softmax, actor.graph_batch, actor.reward_batch, actor.avg_baseline,
 
         score_test, probs, graph_batch, reward_batch, reward_avg_baseline = score_test.numpy(),\
-            probs.numpy(), graph_batch.numpy(), reward_batch.numpy(), reward_avg_baseline.numpy()
+            probs.numpy(), graph_batch.numpy(), reward_batch.numpy(), reward_avg_baseline.numpy() # convert to numpy array
 
 
 
@@ -240,14 +250,15 @@ def main():
         lambda2s.append(lambda2)
 
         rewards_avg_baseline.append(reward_avg_baseline)
-        rewards_batches.append(reward_batch_score_cyc)
-        reward_max_per_batch.append(max_reward_batch_score_cyc)
+        rewards_batches.append(reward_batch_score_cyc) # (avg score, avg cycness) of the batch
+        reward_max_per_batch.append(max_reward_batch_score_cyc) # score and cycness of the best graph in the batch
 
         graphss.append(graph_batch)
         probsss.append(probs)
-        max_rewards.append(max_reward_score_cyc)
+        max_rewards.append(max_reward_score_cyc) # score and cycness of the best graph in the batch
 
         # logging
+        #if i == 1 or i % 10 == 0:
         if i == 1 or i % 10 == 0:
             if i >= 500:
                 # writer.add_summary(summary,i)
@@ -263,7 +274,7 @@ def main():
 
             plt.figure(1)
             plt.plot(rewards_batches, label='reward per batch')
-            plt.plot(max_rewards, label='max reward')
+            #plt.plot(max_rewards, label='max reward')
             plt.legend()
             plt.savefig('{}/reward_batch_average.png'.format(config.plot_dir))
             plt.close()
@@ -339,12 +350,12 @@ def main():
             _logger.info('after  pruning: fdr {}, tpr {}, fpr {}, shd {}, nnz {}'.format(fdr2, tpr2, fpr2, shd2, nnz2))
 
         # Save the variables to disk
-        if i % max(1, int(config.nb_epoch / 5)) == 0 and i != 0:
-            curr_model_path = saver.save(sess, '{}/tmp.ckpt'.format(config.save_model_path), global_step=i)
-            _logger.info('Model saved in file: {}'.format(curr_model_path))
+        #if i % max(1, int(config.nb_epoch / 5)) == 0 and i != 0:
+        #   curr_model_path = saver.save(sess, '{}/tmp.ckpt'.format(config.save_model_path), global_step=i)
+        #    _logger.info('Model saved in file: {}'.format(curr_model_path))
 
     _logger.info('Training COMPLETED !')
-    saver.save(sess, '{}/actor.ckpt'.format(config.save_model_path))
+    #saver.save(sess, '{}/actor.ckpt'.format(config.save_model_path))
 
 
 if __name__ == '__main__':

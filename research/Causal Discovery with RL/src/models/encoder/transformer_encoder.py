@@ -7,7 +7,10 @@ https://www.github.com/kyubyong/transformer
 '''
 import keras.layers
 import tensorflow as tf
- 
+
+from helpers.debugger import print_mine
+
+
 # Apply multihead attention to a 3d tensor with shape [batch_size, seq_length, n_hidden].
 # Attention size = n_hidden should be a multiple of num_head
 # Returns a 3d tensor with shape of [batch_size, seq_length, n_hidden]
@@ -44,7 +47,7 @@ def multihead_attention(layers, inputs, num_heads=16, dropout_rate=0.1, is_train
 
     # Normalize
     # outputs = tf.layers.batch_normalization(outputs, axis=2, training=is_training, name='ln', reuse=None)  # [batch_size, seq_length, n_hidden]
-    outputs = BN(outputs)
+    outputs = BN(outputs, training=True)
 
     return outputs
  
@@ -60,7 +63,7 @@ def feedforward(layers, inputs):
     outputs = conv1(outputs)
     # Residual connection
     outputs += inputs
-    outputs = bn2(outputs)
+    outputs = bn2(outputs, training=True)
 
     return outputs
  
@@ -78,7 +81,8 @@ class TransformerEncoder(keras.layers.Layer):
         self.num_heads = config.num_heads
         self.num_stacks = config.num_stacks
 
-        self.initializer =tf.initializers.GlorotNormal()
+        # self.i1nitializer =tf.initializers.GlorotNormal()
+        self.initializer = tf.initializers.GlorotUniform()
  
         self.is_training = is_train #not config.inference_mode
 
@@ -109,9 +113,12 @@ class TransformerEncoder(keras.layers.Layer):
       # REMOVED FOR MIGRATION TO TF2 with tf.variable_scope("embedding"):
       # Embed input sequence
       self.embedded_input = tf.nn.conv1d(inputs, self.W_embed, 1, "VALID", name="embedded_input")
+
+
+
       # Batch Normalization
       # self.enc = tf.layers.batch_normalization(self.embedded_input, axis=2, training=self.is_training, name='layer_norm', reuse=None)
-      self.enc = self.bn1(self.embedded_input)
+      self.enc = self.bn1(self.embedded_input, training=True)
 
       # REMOVED FOR MIGRATION TO TF2 with tf.variable_scope("embedding"):
       # Blocks
