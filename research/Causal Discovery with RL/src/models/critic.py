@@ -75,4 +75,4 @@ class Critic(keras.layers.Layer):
         self.loss2 = tf.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions) # measure difference between actual returns (adjusted for baseline) and predictions of the critic
         tf.summary.scalar('loss2', self.loss2)
 
-        print("XYPS LOSS 2", self.loss2)
+        # print("XYPS LOSS 2", self.loss2)

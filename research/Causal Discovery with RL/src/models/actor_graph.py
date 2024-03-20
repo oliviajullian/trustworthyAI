@@ -191,7 +191,7 @@ class Actor(keras.layers.Layer):
             self.entropy_regularization, 0)
         tf.summary.scalar('loss1', self.loss1)
 
-        print("XYPS LOSS 1", self.loss1)
+        # print("XYPS LOSS 1", self.loss1)
 
         #with self.summary_writer.as_default():
         #    tf.summary.scalar('loss1', self.loss1, step=step)

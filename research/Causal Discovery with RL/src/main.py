@@ -211,8 +211,8 @@ def main():
                 _logger.info('Finish calculating reward for current batch of graph')
 
 
-            actor.compute_losses(input_batch, reward_feed[:, 0], output, i, actor.critic)
-            actor.critic.compute_losses(input_batch, reward_feed[:, 0], output, i, actor)
+            actor.compute_losses(input_batch, -reward_feed[:, 0], output, i, actor.critic)
+            actor.critic.compute_losses(input_batch, -reward_feed[:, 0], output, i, actor)
 
         grads_actor = tape.gradient(actor.loss1, actor.trainable_weights) # list of tensors corresponding to the gradients of the loss with respect to the trainable weight
         grads_critic = tape.gradient(actor.critic.loss2, actor.trainable_weights)
@@ -221,7 +221,10 @@ def main():
         grads_critic = [tf.clip_by_norm(grad, 1.)  if grad is not None else None for grad in grads_critic]
 
         actor.opt.apply_gradients(zip(grads_actor, actor.trainable_weights))
-        actor.critic.opt.apply_gradients(zip(grads_critic, actor.trainable_weights))
+        actor.opt.apply_gradients(zip(grads_critic, actor.trainable_weights))
+
+        print(actor.loss1, actor.critic.loss2)
+        # print(reward_feed[:, 0], actor.avg_baseline, actor.critic.predictions)
 
         # actor.compute_critic_loss(input_batch, reward_feed[:, 0], output, i)
 
@@ -302,12 +305,12 @@ def main():
             reward_max_per_batch_re = callreward.update_scores(reward_max_per_batch, lambda1, lambda2)
 
             # saved somewhat more detailed logging info
-            np.save('{}/solvd_dict.npy'.format(config.graph_dir), np.array(ls_kv))
-            pd.DataFrame(np.array(max_rewards_re)).to_csv('{}/max_rewards.csv'.format(output_dir))
-            pd.DataFrame(rewards_batches_re).to_csv('{}/rewards_batch.csv'.format(output_dir))
-            pd.DataFrame(reward_max_per_batch_re).to_csv('{}/reward_max_batch.csv'.format(output_dir))
-            pd.DataFrame(lambda1s).to_csv('{}/lambda1s.csv'.format(output_dir))
-            pd.DataFrame(lambda2s).to_csv('{}/lambda2s.csv'.format(output_dir))
+            # np.save('{}/solvd_dict.npy'.format(config.graph_dir), np.array(ls_kv))
+            # pd.DataFrame(np.array(max_rewards_re)).to_csv('{}/max_rewards.csv'.format(output_dir))
+            # pd.DataFrame(rewards_batches_re).to_csv('{}/rewards_batch.csv'.format(output_dir))
+            # pd.DataFrame(reward_max_per_batch_re).to_csv('{}/reward_max_batch.csv'.format(output_dir))
+            # pd.DataFrame(lambda1s).to_csv('{}/lambda1s.csv'.format(output_dir))
+            # pd.DataFrame(lambda2s).to_csv('{}/lambda2s.csv'.format(output_dir))
 
             graph_int, score_min, cyc_min = np.int32(ls_kv[0][0]), ls_kv[0][1][1], ls_kv[0][1][-1]
 

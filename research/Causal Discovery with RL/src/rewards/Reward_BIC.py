@@ -102,8 +102,9 @@ class get_Reward(object):
             #graph_batch[i][i] = 0  #correction
             tt = np.int32(graph_batch[i])
             #print("tt", tt)
-            graph_to_int.append(self.baseint * i + np.int(''.join([str(ad) for ad in tt]), 2)) # convert binary (taken from the row as a string) to int plus (2**d) *i
-            graph_to_int2.append(np.int(''.join([str(ad) for ad in tt]), 2)) # only the binary transformation
+            graph_to_int.append(self.baseint * i + int(''.join([str(ad) for ad in tt]), 2)) # convert binary (taken from the row as a string) to int plus (2**d) *i
+            graph_to_int2.append(int(''.join([str(ad) for ad in tt]), 2)) # only the binary transformation
+            # print(graph_to_int, graph_to_int2)
             #print("graph_to_int: ", graph_to_int)
             #print("graph_to_int2: ", graph_to_int2)
             #break
@@ -154,7 +155,7 @@ class get_Reward(object):
 
         score = self.score_transform(BIC)
         cycness = np.trace(matrix_exponential(np.array(graph_batch)))- self.maxlen # trace is the sum of the diagonal elements of matrix_exponential(np.array(graph_batch))
-        reward = score + lambda1*np.float(cycness>1e-5) + lambda2*cycness 
+        reward = score + lambda1*np.float32(cycness>1e-5) + lambda2*cycness
         '''
         This line calculates the final reward for the graph. The reward is a combination of the transformed BIC score (score), a penalty or reward for the presence of cycles (cycness), and regularization terms controlled by lambda1 and lambda2.
         lambda1*np.float(cycness>1e-5): This term adds a penalty or reward based on the presence of significant cycles in the graph. If cycness is greater than a threshold (1e-5), indicating the presence of cycles, lambda1 is added to the reward (this term enables or disables a fixed impact on the reward based on cycle presence)
@@ -186,7 +187,7 @@ class get_Reward(object):
 
     def penalized_score(self, score_cyc, lambda1, lambda2):
         score, cyc = score_cyc
-        return score + lambda1*np.float(cyc>1e-5) + lambda2*cyc
+        return score + lambda1*np.float32(cyc>1e-5) + lambda2*cyc
     
     def update_scores(self, score_cycs, lambda1, lambda2):
         ls = []
