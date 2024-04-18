@@ -1,13 +1,55 @@
+import time
+
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from scipy.linalg import expm as matrix_exponential
 from scipy.spatial.distance import pdist, squareform
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.preprocessing import StandardScaler
 import logging
 import tensorflow as tf
 
 from helpers.debugger import print_mine, print_mine_np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+#import os
+
+from sklearn.svm import SVR
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+import numpy as np
+
+
+import matplotlib.pyplot as plt
+
+
+class CustomModule(torch.nn.Module):
+    def __init__(self, total_cols, features):
+        super(CustomModule, self).__init__()
+        #self.W = torch.nn.Parameter(torch.randn((768, 8, 17)))
+        self.W = torch.nn.Parameter(torch.randn((total_cols, features, 17)))
+        #self.W2 = torch.nn.Parameter(torch.randn((768, 17, 1)))
+        self.W2 = torch.nn.Parameter(torch.randn((total_cols, 17, 1)))
+
+    def forward(self, D):
+        # Reshape D and W for broadcasting
+        W = self.W.to(D.device)
+        W2 = self.W2.to(D.device)
+
+
+        D = D.unsqueeze(2)  # Shape: (5000, 768, 1, 8)
+        W = W.unsqueeze(0)  # Shape: (1, 768, 8, 17)
+        W2 = W2.unsqueeze(0)  # Shape: (1, 768, 17, 1)
+
+        x = torch.matmul(D, W)  # Perform matrix multiplication
+        x = torch.relu(x)
+        x = torch.matmul(x, W2)
+
+        return x.squeeze(2)
+
 
 
 class get_Reward(object):
@@ -16,6 +58,10 @@ class get_Reward(object):
 
     def __init__(self, batch_num, maxlen, dim, inputdata, sl, su, lambda1_upper, 
                  score_type='BIC', reg_type='LR', l1_graph_reg=0.0, verbose_flag=True):
+        self.y_train_torch = None
+        self.X_train_torch = None
+        self.features = None
+        self.total_cols = None
         self.batch_num = batch_num
         self.maxlen = maxlen # =d: number of vars
         self.dim = dim
@@ -41,8 +87,58 @@ class get_Reward(object):
         self.ones = np.ones((inputdata.shape[0], 1), dtype=np.float32)
         self.poly = PolynomialFeatures()
 
+
     def cal_rewards(self, graphs, lambda1, lambda2):
         rewards_batches = []
+
+        print ("graphs shape", graphs.shape) #graph shape (64,12,12)
+        print ("max length", self.maxlen) #graphi shape )
+
+        all_X_train = []
+        all_y_train = []
+        all_indices = []
+
+        max_features = 0  #to track the max num of features across all samples
+
+        for graphi in graphs:
+            for i in range(self.maxlen):  # A12
+                col = graphi[i]
+                if np.sum(col) < 0.1:
+                    continue
+
+
+                else:
+                    cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5))
+                    X_train = self.inputdata[:, cols_TrueFalse]
+                    y_train = self.inputdata[:, i]
+                    all_X_train.append(X_train)
+                    all_y_train.append(y_train)
+                    all_indices.append(i)
+                    if X_train.shape[1] > max_features:
+                        max_features = X_train.shape[1]  #updating max feautures
+
+        # Padding arrays in all_X_train to have the same second dimension
+        all_X_train_padded = [np.pad(x, ((0, 0), (0, max_features - x.shape[1])), 'constant', constant_values=0)
+                              for x in all_X_train]
+
+        # Convert lists to tensorrs
+        self.X_train_torch = torch.from_numpy(np.stack(all_X_train_padded, axis=1).astype(np.float32))
+        y_train_torch = torch.from_numpy(np.stack(all_y_train, axis=1).astype(np.float32))
+        self.y_train_torch = y_train_torch.unsqueeze(-1)
+
+        print("X_train shape: ", self.X_train_torch.shape)
+        print("y_train shape: ", self.y_train_torch.shape)
+
+        self.total_cols = self.X_train_torch.shape[1]
+        self.features = self.X_train_torch.shape[2]
+
+
+        ###### Trying =======
+        # Instantiate the model
+        self.model = CustomModule(self.total_cols, self.features).cuda()
+
+        # Train the model
+        self.train_model(self.model, self.X_train_torch.cuda(), self.y_train_torch.cuda())
 
         for graphi in graphs:
             reward_ = self.calculate_reward_single_graph(graphi, lambda1, lambda2) # reward_ is (reward, score, cycness)
@@ -65,18 +161,111 @@ class get_Reward(object):
             assert False, 'Regressor not supported'
 
     # faster than LinearRegression() from sklearn
-    def calculate_LR(self, X_train, y_train):
+
+    '''def calculate_LR(self, X_train, y_train):
         X = np.hstack((X_train, self.ones))
         XtX = X.T.dot(X)
         Xty = X.T.dot(y_train)
         theta = np.linalg.solve(XtX, Xty)
         y_err = X.dot(theta) - y_train
-        return y_err
+        return y_err'''
 
+
+
+
+    # Custom training loop
+    def train_model(self, model,  X_train, y_train, num_epochs=10, learning_rate=0.001):
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+        X_train = X_train.cuda()
+        y_train = y_train.cuda()
+
+        for epoch in range(num_epochs):
+            total_loss = 0.0
+            start_time = time.time()
+
+            # Generate random data
+            #D = torch.randn((5000, 768, 8)).cuda()
+            #D = torch.from_numpy(X_train.astype(np.float32)) #X_train
+            # Forward pass
+            output = model(X_train)
+            print ("output shape: ", output.shape)
+
+            #y_train_torch = torch.from_numpy(y_train.astype(np.float32))
+
+            print ("y_train shape: ", y_train.shape)
+
+            # Dummy loss, you should define your loss function here
+            #loss = torch.mean(output)  # Example loss, you should replace it with your loss
+            loss = nn.MSELoss()
+            loss = loss(output, y_train)
+
+
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+            end_time = time.time()
+            epoch_time = end_time - start_time
+
+            print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {total_loss:.4f}, Time: {epoch_time:.2f}s")
+
+
+
+    def calculate_LR(self, X_train, y_train): #FUNZIONA
+        #input_size = X_train.shape[1]
+        #model = PyTorchMLP(input_size=input_size)
+
+        # Convert to pytorch
+        #X_train_torch = torch.from_numpy(X_train.astype(np.float32))
+        #y_train_torch = torch.from_numpy(y_train.astype(np.float32))
+
+        #criterion = nn.MSELoss()
+        #optimizer = optim.Adam(model.parameters(), lr=0.01)
+        ''' #already trained in train _model
+        # Training loop
+        model.train()
+        for epoch in range(100):  # Assuming a fixed number of epochs
+            #print("ccc")
+            optimizer.zero_grad()
+            outputs = model(X_train_torch)
+            loss = criterion(outputs, y_train_torch.view(-1, 1))
+            loss.backward()
+            optimizer.step()
+        #print("qr")
+        '''
+        # Making predictions (inference)
+        self.model.eval()
+
+        device = next(self.model.parameters()).device
+        X_train = X_train.to(device)
+        y_train = y_train.to(device)
+
+
+        with torch.no_grad():
+            predictions = self.model(X_train)
+
+        # Convert back to numpy
+        #y_pred = predictions.numpy()
+        y_pred = predictions
+        #y_train = y_train.numpy()
+
+        # Compute the error
+        y_err = y_pred - y_train
+        y_err = y_err.cpu().numpy()
+
+        return y_err   #returning the err for all the graphs in one ACTOR_CRITIC Iteration
+
+
+    '''
     def calculate_QR(self, X_train, y_train):
         X_train = self.poly.fit_transform(X_train)[:,1:]
         return self.calculate_LR(X_train, y_train)
-    
+    '''
     def calculate_GPR(self, X_train, y_train):
         med_w = np.median(pdist(X_train, 'euclidean'))
         gpr = GPR().fit(X_train/med_w, y_train)
@@ -133,7 +322,8 @@ class get_Reward(object):
                 cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5)) # set to True the elements of col that are greater than 0.5
                 X_train = self.inputdata[:, cols_TrueFalse] # take the columns of the input data that are True in cols_TrueFalse
                 y_train = self.inputdata[:, i] # take the i-th column of the input data
-                y_err = self.calculate_yerr(X_train, y_train)
+                #y_err = self.calculate_yerr(X_train, y_train)
+                y_err = self.calculate_yerr(self.X_train_torch, self.y_train_torch)
 
             RSSi = np.sum(np.square(y_err))
 
