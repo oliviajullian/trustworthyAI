@@ -25,6 +25,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
+contatore = 0
 
 class CustomModule(torch.nn.Module):
     def __init__(self, total_cols, features):
@@ -56,12 +57,15 @@ class get_Reward(object):
 
     _logger = logging.getLogger(__name__)
 
-    def __init__(self, batch_num, maxlen, dim, inputdata, sl, su, lambda1_upper, 
+    def __init__(self, batch_num, maxlen, dim, inputdata, sl, su, lambda1_upper,
                  score_type='BIC', reg_type='LR', l1_graph_reg=0.0, verbose_flag=True):
+        self.has_parents = None
         self.y_train_torch = None
         self.X_train_torch = None
         self.features = None
         self.total_cols = None
+        self.no_parents_indices = [] #to track indices with no parents
+
         self.batch_num = batch_num
         self.maxlen = maxlen # =d: number of vars
         self.dim = dim
@@ -70,7 +74,7 @@ class get_Reward(object):
         self.d_RSS = {} # store RSS for reuse
         self.inputdata = inputdata
         self.n_samples = inputdata.shape[0]
-        self.l1_graph_reg = l1_graph_reg 
+        self.l1_graph_reg = l1_graph_reg
         self.verbose = verbose_flag
         self.sl = sl
         self.su = su
@@ -93,21 +97,27 @@ class get_Reward(object):
 
         print ("graphs shape", graphs.shape) #graph shape (64,12,12)
         print ("max length", self.maxlen) #graphi shape )
-
+        self.has_parents = []
         all_X_train = []
         all_y_train = []
         all_indices = []
+        all_y_err = [] ###
+        all_parents = [] ### track whether each column has parents
 
         max_features = 0  #to track the max num of features across all samples
 
-        for graphi in graphs:
-            for i in range(self.maxlen):  # A12
+        for graphi in graphs:  #64 binary
+            for i in range(self.maxlen):  # 12
                 col = graphi[i]
                 if np.sum(col) < 0.1:
-                    continue
-
-
+                    self.has_parents.append(False)
+                    y_train = self.inputdata[:, i]
+                    #    y_err = y_train - np.mean(y_train)
+                    #    all_y_err.append(y_err)
+                    #    all_parents.append(False)
                 else:
+                    self.has_parents.append(True)
+
                     cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5))
                     X_train = self.inputdata[:, cols_TrueFalse]
                     y_train = self.inputdata[:, i]
@@ -116,7 +126,9 @@ class get_Reward(object):
                     all_indices.append(i)
                     if X_train.shape[1] > max_features:
                         max_features = X_train.shape[1]  #updating max feautures
+                    #all_parents.append(True)
 
+        ##TO DO: Check padding (move)
         # Padding arrays in all_X_train to have the same second dimension
         all_X_train_padded = [np.pad(x, ((0, 0), (0, max_features - x.shape[1])), 'constant', constant_values=0)
                               for x in all_X_train]
@@ -140,14 +152,35 @@ class get_Reward(object):
         # Train the model
         self.train_model(self.model, self.X_train_torch.cuda(), self.y_train_torch.cuda())
 
-        for graphi in graphs:
-            reward_ = self.calculate_reward_single_graph(graphi, lambda1, lambda2) # reward_ is (reward, score, cycness)
+        y_errs = self.calculate_yerr(self.X_train_torch, self.y_train_torch)
+
+        start = 0
+        for gnum in range(graphs.shape[0]):
+            graphi = graphs[gnum]
+            row = graphi[0]
+            err_graph = np.empty((5000,0))
+            for fnum in range(self.maxlen):
+                row = graphi[fnum]
+                par = row.sum()
+                if par == 0:
+                    tmp = self.inputdata[:, fnum]
+                    tmp = tmp - np.mean(tmp)
+                else:
+                    end = start+5000
+                    tmp = y_errs[start:end]
+                    start=end
+
+                err_graph = np.concatenate((err_graph,tmp), axis=-1) # shape = 5000*12
+
+            reward_ = self.calculate_reward_single_graph(graphi, lambda1, lambda2, err_graph) # reward_ is (reward, score, cycness)
             rewards_batches.append(reward_)
+
+
 
         return np.array(rewards_batches) # contains array of (reward, score, cycness) for each graph
 
 
-    ####### regression 
+    ####### regression
 
     def calculate_yerr(self, X_train, y_train):
         if self.reg_type == 'LR':
@@ -245,20 +278,36 @@ class get_Reward(object):
         X_train = X_train.to(device)
         y_train = y_train.to(device)
 
+        #y_err = torch.zeros_like(y_train)
 
-        with torch.no_grad():
-            predictions = self.model(X_train)
+        y_errs = []
 
-        # Convert back to numpy
-        #y_pred = predictions.numpy()
-        y_pred = predictions
-        #y_train = y_train.numpy()
+        for i, has_parent in enumerate(self.has_parents):
+            if has_parent:
+                # Handle columns with parents
+                with torch.no_grad():
+                    prediction = self.model(X_train[:, i:(i + 1)])
+                #y_err[:, i:(i + 1)] = prediction - y_train[:, i:(i + 1)]
+                y_err = prediction - y_train[:, i:(i + 1)]
+                y_errs.append(y_err)
 
-        # Compute the error
-        y_err = y_pred - y_train
-        y_err = y_err.cpu().numpy()
+            else:
+                # Handle columns without parents
+                mean_value = y_train[:, i:(i + 1)].mean()
+                #y_err[:, i:(i + 1)] = mean_value - y_train[:, i:(i + 1)]
+                y_err = y_train[:, i:(i + 1)] - mean_value
+                y_errs.append(y_err)
 
-        return y_err   #returning the err for all the graphs in one ACTOR_CRITIC Iteration
+
+        global contatore
+        contatore += 1
+        print(" error number ", contatore)
+
+        #y_err = y_err.cpu().numpy()
+
+        print ("XXX")
+        
+        return y_errs   #returning the errs for all the graphs in one ACTOR_CRITIC Iteration
 
 
     '''
@@ -273,7 +322,7 @@ class get_Reward(object):
 
     ####### score calculations
 
-    def calculate_reward_single_graph(self, graph_batch, lambda1, lambda2):
+    def calculate_reward_single_graph(self, graph_batch, lambda1, lambda2, y_errs):
         graph_to_int = []
         graph_to_int2 = []
         #print("graph_batch====")
@@ -307,25 +356,14 @@ class get_Reward(object):
 
         RSS_ls = []
 
+
         for i in range(self.maxlen):
-            col = graph_batch[i]  # take the i-th row of the graph and store it in col
+            #col = graph_batch[i]  # take the i-th row of the graph and store it in col
             if graph_to_int[i] in self.d_RSS: # if the RSS for the i-th row has already been calculated, store it in RSS_ls and continue
                 RSS_ls.append(self.d_RSS[graph_to_int[i]])
                 continue
 
-            # no parents, then simply use mean
-            if np.sum(col) < 0.1: 
-                y_err = self.inputdata[:, i]
-                y_err = y_err - np.mean(y_err)
-
-            else:
-                cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5)) # set to True the elements of col that are greater than 0.5
-                X_train = self.inputdata[:, cols_TrueFalse] # take the columns of the input data that are True in cols_TrueFalse
-                y_train = self.inputdata[:, i] # take the i-th column of the input data
-                #y_err = self.calculate_yerr(X_train, y_train)
-                y_err = self.calculate_yerr(self.X_train_torch, self.y_train_torch)
-
-            RSSi = np.sum(np.square(y_err))
+            RSSi = np.sum(np.square(y_errs[:,i]))
 
             # if the regresors include the true parents, GPR would result in very samll values, e.g., 10^-13
             # so we add 1.0, which does not affect the monotoniticy of the score
@@ -338,7 +376,7 @@ class get_Reward(object):
 
         if self.score_type == 'BIC':
             BIC = np.log(np.sum(RSS_ls)/self.n_samples+1e-8) \
-                  + np.sum(graph_batch)*self.bic_penalty/self.maxlen 
+                  + np.sum(graph_batch)*self.bic_penalty/self.maxlen
         elif self.score_type == 'BIC_different_var':
             BIC = np.sum(np.log(np.array(RSS_ls)/self.n_samples+1e-8)) \
                  + np.sum(graph_batch)*self.bic_penalty
@@ -371,23 +409,24 @@ class get_Reward(object):
         return reward, score, cycness
 
     #### helper
-    
+
     def score_transform(self, s):
         return (s-self.sl)/(self.su-self.sl)*self.lambda1_upper
 
     def penalized_score(self, score_cyc, lambda1, lambda2):
         score, cyc = score_cyc
         return score + lambda1*np.float32(cyc>1e-5) + lambda2*cyc
-    
+
     def update_scores(self, score_cycs, lambda1, lambda2):
         ls = []
         for score_cyc in score_cycs:
             ls.append(self.penalized_score(score_cyc, lambda1, lambda2))
         return ls
-    
+
     def update_all_scores(self, lambda1, lambda2):
         score_cycs = list(self.d.items())
         ls = []
         for graph_int, score_cyc in score_cycs:
             ls.append((graph_int, (self.penalized_score(score_cyc, lambda1, lambda2), score_cyc[0], score_cyc[1])))
         return sorted(ls, key=lambda x: x[1][0])
+
