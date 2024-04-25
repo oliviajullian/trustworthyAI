@@ -25,9 +25,9 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-class PyTorchMLP(nn.Module):
+class PyTorchMLP2(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
-        super(PyTorchMLP, self).__init__()
+        super(PyTorchMLP2, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fcl = nn.Linear(hidden_size, output_size)
 
@@ -38,10 +38,12 @@ class PyTorchMLP(nn.Module):
 
         x = self.fcl(x)
         return x
-'''
-class PyTorchMLP(nn.Module):
+
+
+
+class PyTorchMLP1(nn.Module):
     def __init__(self, input_size):
-        super(PyTorchMLP, self).__init__()
+        super(PyTorchMLP1, self).__init__()
         self.layer1 = nn.Linear(input_size, 64)
         self.relu = nn.ReLU()
         self.layer2 = nn.Linear(64, 1)  
@@ -50,7 +52,7 @@ class PyTorchMLP(nn.Module):
         x = self.relu(self.layer1(x))
         x = self.layer2(x)
         return x
-'''
+
 '''
 class PyTorchMLP(nn.Module):
     def __init__(self, input_size):
@@ -263,21 +265,56 @@ class get_Reward(object):
 
         return y_err
     '''
-    '''
-    def calculate_QR(self, X_train, y_train):   #FUNZIONA!!!!
+
+    def calculate_LR(self, X_train, y_train):
+        input_size = X_train.shape[1]
+        model = PyTorchMLP1(input_size=input_size)
+
+        # Convert X_train, y_train from NumPy arrays to PyTorch tensors
+        X_train_torch = torch.from_numpy(X_train.astype(np.float32))
+        y_train_torch = torch.from_numpy(y_train.astype(np.float32))
+
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+        # Training loop
+        model.train()
+        for epoch in range(100):  # Assuming a fixed number of epochs
+            # print("ccc")
+            optimizer.zero_grad()
+            outputs = model(X_train_torch)
+            loss = criterion(outputs, y_train_torch.view(-1, 1))
+            loss.backward()
+            optimizer.step()
+
+        # Making predictions (inference)
+        model.eval()
+        with torch.no_grad():
+            predictions = model(X_train_torch)
+
+        # Convert predictions back to a NumPy array
+        y_pred = predictions.numpy()
+
+        # Compute the error
+        y_err = y_pred.flatten() - y_train  # Ensure shapes are compatible
+
+        return y_err
+
+    def calculate_QR(self, X_train, y_train):   #working
         
         poly = PolynomialFeatures(degree=2, include_bias=True)
         X_train_poly = poly.fit_transform(X_train)
 
         
         input_size = X_train_poly.shape[1]
-        model = PyTorchMLP(input_size=input_size)
+        model = PyTorchMLP1(input_size=input_size)
 
         #convet to torch 
         X_train_poly_torch = torch.from_numpy(X_train_poly.astype(np.float32))
         y_train_torch = torch.from_numpy(y_train.astype(np.float32))
 
         criterion = nn.MSELoss()
+
         optimizer = optim.Adam(model.parameters(), lr=0.01)
 
         # Training loop
@@ -301,12 +338,12 @@ class get_Reward(object):
         y_err = y_pred.flatten() - y_train  # Ensure shapes are compatible
 
         return y_err
-    '''
+
 
 
     def calculate_GPR(self, X_train, y_train): #Working for linear case : calculate_LR ()
         input_size = X_train.shape[1]
-        model = PyTorchMLP(input_size=input_size, hidden_size=100, output_size=1)
+        model = PyTorchMLP2(input_size=input_size, hidden_size=100, output_size=1)
 
         # Convert to pytorch
         X_train = torch.from_numpy(X_train.astype(np.float32))
