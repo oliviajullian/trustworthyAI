@@ -37,6 +37,30 @@ matplotlib.use('Agg')
 
 
 def main():
+    # List available GPU devices
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+
+    # Set memory growth for each GPU
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+            print(gpu.name)
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
+    '''        
+    #gpu utilize check
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                print(f"Device Name: {gpu.name}, Device Type: {gpu.device_type}")
+        except RuntimeError as e:
+            print(e)
+    else:
+        print("No GPUs found.")
+    '''
+
     # Setup for output directory and logging
     output_dir = 'output/{}'.format(datetime.now(timezone('Asia/Hong_Kong')).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3])
     create_dir(output_dir)
@@ -72,6 +96,7 @@ def main():
         training_set = DataGenerator_read_data(file_path, solution_path, config.normalize, config.transpose)
         print("This is training_set", training_set)
         print(training_set.inputdata)
+        #print ("training set input data shape", training_set.inputdata.shape)
     else:
         raise ValueError("Only support importing data from existing files")
         
@@ -122,6 +147,8 @@ def main():
 
     callreward = get_Reward(actor.batch_size, config.max_length, actor.input_dimension, training_set.inputdata,
                             sl, su, lambda1_upper, score_type, reg_type, config.l1_graph_reg, False)
+
+    print ("training_set.inputdata", training_set.inputdata.shape)
 
     _logger.info('Finished creating training dataset, actor model and reward class')
 
@@ -186,7 +213,8 @@ def main():
 
             actor.critic.predict_rewards(encoder_output=actor.encoder_output)
 
-            reward_feed = callreward.cal_rewards(output, lambda1, lambda2)
+
+            reward_feed = callreward.cal_rewards(output, lambda1, lambda2)  #output are binary matrices coming from the encoder-decoder actor
 
             # max reward, max reward per batch
             max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0] 
@@ -329,10 +357,24 @@ def main():
                 graph_batch_pruned = np.array(graph_prunned_by_coef_2nd(graph_batch, training_set.inputdata))
             elif reg_type == 'GPR':
                 from helpers.cam_with_pruning_cam import pruning_cam
-                raise NotImplementedError('Check proper installation of R')
+                #raise NotImplementedError('Check proper inputdatastallation of R')
                 # The R codes of CAM pruning operates the graph form that (i,j)=1 indicates i-th node-> j-th node
                 # so we need to do a tranpose on the input graph and another tranpose on the output graph
+                print("gpr")
                 graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
+
+
+            fig = plt.figure(3)
+            fig.suptitle('Iteration: {}'.format(i))
+            ax = fig.add_subplot(1, 2, 1)
+            ax.set_title('recovered_graph_after_pruning')
+            ax.imshow(np.around(graph_batch_pruned.T).astype(int), cmap=plt.cm.gray)
+            ax = fig.add_subplot(1, 2, 2)
+            ax.set_title('ground truth')
+            ax.imshow(training_set.true_graph, cmap=plt.cm.gray)
+            plt.savefig('{}/recovered_graph_iteration_pruned{}.png'.format(config.plot_dir, image_count))
+            plt.close()
+
 
             # estimate accuracy
             acc_est = count_accuracy(training_set.true_graph, graph_batch.T)
