@@ -10,6 +10,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.preprocessing import StandardScaler
 import logging
 import tensorflow as tf
+from helpers.analyze_utils import cache_write
 
 from helpers.debugger import print_mine, print_mine_np
 import torch
@@ -32,7 +33,7 @@ class PyTorchMLP2(nn.Module):
         self.fcl = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        x = torch.nn.functional.leaky_relu(self.fc1(x))
+        x = torch.nn.functional.relu(self.fc1(x))
         # x = torch.nn.functional.leaky_relu(self.fc2(x))
         # x = torch.nn.functional.leaky_relu(self.fc3(x))
 
@@ -267,19 +268,23 @@ class get_Reward(object):
     '''
 
     def calculate_LR(self, X_train, y_train):
+        device = 'mps'
+
         input_size = X_train.shape[1]
-        model = PyTorchMLP1(input_size=input_size)
+        model = PyTorchMLP1(input_size=input_size).to(device)
 
         # Convert X_train, y_train from NumPy arrays to PyTorch tensors
-        X_train_torch = torch.from_numpy(X_train.astype(np.float32))
-        y_train_torch = torch.from_numpy(y_train.astype(np.float32))
+        X_train_torch = torch.from_numpy(X_train.astype(np.float32)).to(device)
+        y_train_torch = torch.from_numpy(y_train.astype(np.float32)).to(device)
 
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.01)
 
         # Training loop
         model.train()
-        for epoch in range(100):  # Assuming a fixed number of epochs
+        # t1 = time.time()
+        num_epochs = 100
+        for epoch in range(num_epochs):  # Assuming a fixed number of epochs
             # print("ccc")
             optimizer.zero_grad()
             outputs = model(X_train_torch)
@@ -287,13 +292,20 @@ class get_Reward(object):
             loss.backward()
             optimizer.step()
 
+            if (epoch + 1) % 100 == 0:
+                # print(outputs)
+                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+        # print("Time taken", time.time() - t1, "seconds")
+
         # Making predictions (inference)
         model.eval()
         with torch.no_grad():
             predictions = model(X_train_torch)
 
         # Convert predictions back to a NumPy array
-        y_pred = predictions.numpy()
+        y_pred = predictions.to('cpu').numpy()
+
+        # print(y_pred.shape, y_train.shape)
 
         # Compute the error
         y_err = y_pred.flatten() - y_train  # Ensure shapes are compatible
@@ -342,12 +354,14 @@ class get_Reward(object):
 
 
     def calculate_GPR(self, X_train, y_train): #Working for linear case : calculate_LR ()
+        device = 'mps'
+
         input_size = X_train.shape[1]
-        model = PyTorchMLP2(input_size=input_size, hidden_size=100, output_size=1)
+        model = PyTorchMLP2(input_size=input_size, hidden_size=64, output_size=1).to(device)
 
         # Convert to pytorch
-        X_train = torch.from_numpy(X_train.astype(np.float32))
-        y_train = torch.from_numpy(y_train.astype(np.float32))
+        X_train = torch.from_numpy(X_train.astype(np.float32)).to(device)
+        y_train = torch.from_numpy(y_train.astype(np.float32)).to(device)
         y_train = y_train.unsqueeze(1)  #going ftom 1-D to 2-D
         #print("X_train", X_train)
 
@@ -358,7 +372,7 @@ class get_Reward(object):
 
         # Training loop
         #model.train()
-        num_epochs = 1000
+        num_epochs = 100
         for epoch in range(num_epochs):
             #print("ccc")
 
@@ -372,7 +386,8 @@ class get_Reward(object):
             # Print progress
             if (epoch + 1) % 100 == 0:
                 # print(outputs)
-                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+                if np.random.uniform() < 0.05:
+                    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
         #print("qr")
 
@@ -382,12 +397,14 @@ class get_Reward(object):
             predictions = model(X_train)
 
         # Convert back to numpy
-        y_pred = predictions.numpy()
+        y_pred = predictions.cpu().numpy()
 
         # Compute the error
         #y_err = y_pred.flatten() - y_train
-        y_train = y_train.numpy()
+        y_train = y_train.cpu().numpy()
         y_err = y_pred - y_train
+
+        # print(y_err)
 
         return y_err
 
@@ -529,13 +546,14 @@ class get_Reward(object):
                 y_err = self.calculate_yerr(X_train, y_train)
 
 
-
+            # print(y_err)
             RSSi = np.sum(np.square(y_err))
+            # cache_write("y_err", y_err)
 
             # if the regresors include the true parents, GPR would result in very samll values, e.g., 10^-13
             # so we add 1.0, which does not affect the monotoniticy of the score
-            if self.reg_type == 'GPR':
-                RSSi += 1.0
+            # if self.reg_type == 'GPR': TODO: CHANGE IT BACK
+            #     RSSi += 1.0
 
             RSS_ls.append(RSSi)
             self.d_RSS[graph_to_int[i]] = RSSi

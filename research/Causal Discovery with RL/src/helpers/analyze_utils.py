@@ -1,8 +1,36 @@
+import pickle
+
 import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
+
+# Global dictionary to hold numpy arrays with keys
+global_data = {}
+calls = 0
+def cache_write(key, data):
+    global global_data, calls
+    calls += 1
+    print(calls)
+
+    # Convert input data to numpy array and flatten
+    data = np.asarray(data).flatten()
+
+    # Check if the key already exists in the global dictionary
+    if key in global_data:
+        # Append new data to the existing array associated with the key
+        global_data[key] = np.append(global_data[key], data)
+    else:
+        # Create a new entry in the dictionary with the key and data
+        global_data[key] = data
+
+    # Write the dictionary to a pickled file
+    with open('data.pkl', 'wb') as file:
+        pickle.dump(global_data, file)
+
+    if calls == 5:
+        0/0
 
 
 def get_training_time(log_path):

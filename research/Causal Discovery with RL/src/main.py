@@ -18,6 +18,7 @@ from pytz import timezone
 from datetime import datetime
 import matplotlib.pyplot as plt
 import tensorflow as tf
+from helpers.cam_with_pruning_cam import pruning_cam
 
 from data_loader import DataGenerator_read_data
 from models import Actor
@@ -107,7 +108,12 @@ def main():
     if config.lambda_flag_default:
         
         sl, su, strue = BIC_lambdas(training_set.inputdata, None, None, training_set.true_graph.T, reg_type, score_type)
-        
+        # print(sl, su, strue)
+        # 0/0
+        # sl = 1.2705835383149398
+        # su = 5.729847963164211
+        # strue = 2.4855898888731427
+
         lambda1 = 0
         lambda1_upper = 5
         lambda1_update_add = 1
@@ -324,6 +330,11 @@ def main():
             plt.savefig('{}/recovered_graph_iteration_{}.png'.format(config.plot_dir, image_count))
             plt.close()
 
+        # ls_kv = callreward.update_all_scores(lambda1, lambda2)
+        # graph_int, score_min, cyc_min = np.int32(ls_kv[0][0]), ls_kv[0][1][1], ls_kv[0][1][-1]
+        # graph_batch = convert_graph_int_to_adj_mat(graph_int)
+        # graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
+
         # update lambda1, lamda2
         if (i+1) % lambda_iter_num == 0:
             ls_kv = callreward.update_all_scores(lambda1, lambda2)
@@ -356,7 +367,7 @@ def main():
             elif reg_type == 'QR':
                 graph_batch_pruned = np.array(graph_prunned_by_coef_2nd(graph_batch, training_set.inputdata))
             elif reg_type == 'GPR':
-                from helpers.cam_with_pruning_cam import pruning_cam
+                # from helpers.cam_with_pruning_cam import pruning_cam
                 #raise NotImplementedError('Check proper inputdatastallation of R')
                 # The R codes of CAM pruning operates the graph form that (i,j)=1 indicates i-th node-> j-th node
                 # so we need to do a tranpose on the input graph and another tranpose on the output graph
