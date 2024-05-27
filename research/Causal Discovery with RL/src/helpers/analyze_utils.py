@@ -3,12 +3,40 @@ import pickle
 import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
+from keras import Sequential
+from keras.src.layers import Dense
+from keras.src.optimizers import Adam
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+
 
 # Global dictionary to hold numpy arrays with keys
 global_data = {}
 calls = 0
+
+
+class GraphMLP(nn.Module):
+    def __init__(self, d):
+        super(GraphMLP, self).__init__()
+        self.d = d
+        self.layers = nn.Sequential(
+            nn.Linear(d, d * 10),  # Scaling up the feature space
+            nn.ReLU(),
+            nn.Linear(d * 10, d * d)  # Output layer to reshape into d x d matrix
+        )
+
+    def forward(self, x):
+        x = self.layers(x)
+        return x.view(-1, self.d, self.d)  # Reshape output to d x d matrix
+
+
 def cache_write(key, data):
     global global_data, calls
     calls += 1
@@ -51,7 +79,44 @@ def get_training_time(log_path):
         hours = diff.days * 24 + diff.seconds / (60.0 * 60.0)
         return hours
 
-    
+def mlp_model(input_dim):  #prova
+    model = Sequential([
+        Dense(64, input_dim=input_dim, activation='relu'),  # Hidden layer
+        Dense(1, activation='linear')  # Output layer for regression
+    ])
+    model.compile(optimizer=Adam(learning_rate=0.01), loss='mse')
+    return model
+
+def graph_prunned_by_mlp(graph_batch, X, th=0.3):  #prova
+    d = len(graph_batch)
+    W = []
+
+    for i in range(d):
+        col = np.abs(graph_batch[i]) > 0.1
+        if np.sum(col) <= 0.1:
+            W.append(np.zeros(d))
+            continue
+
+        X_train = X[:, col]
+        y = X[:, i]
+
+        if X_train.size > 0:
+            model = mlp_model(X_train.shape[1])
+            model.fit(X_train, y, epochs=100, verbose=0)
+            weights = model.layers[0].get_weights()[0]  #Weights[0] contains the weight matrix, Weights[1] contains biases
+            new_reg_coeff = np.zeros(d, )
+            cj = 0
+            for ci in range(d):
+                if col[ci]:
+                    new_reg_coeff[ci] = weights[cj, 0]
+                    cj += 1
+            W.append(new_reg_coeff)
+        else:
+            print(f"Skipping training for feature {i} due to no data.")
+            W.append(np.zeros(d))
+
+    return np.float32(np.abs(W) > th)
+
 def graph_prunned_by_coef(graph_batch, X, th=0.3):
     """
     for a given graph, pruning the edge according to edge weights;
