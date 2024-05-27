@@ -386,8 +386,9 @@ class get_Reward(object):
             # Print progress
             if (epoch + 1) % 100 == 0:
                 # print(outputs)
+                #print(f'XEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
                 if np.random.uniform() < 0.05:
-                    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+                    print(f'XXEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
         #print("qr")
 
