@@ -29,16 +29,16 @@ class SingleLayerDecoder(tf.keras.layers.Layer):
         self.mask_scores = []
         self.entropy = []
 
-        self.W_l = self.add_weight('weights_left', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
-        self.W_r = self.add_weight('weights_right', [self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
-        self.U = self.add_weight('U', [self.decoder_hidden_dim], initializer=self.initializer)
+        self.W_l = self.add_weight(name='weights_left', shape=[self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
+        self.W_r = self.add_weight(name='weights_right', shape=[self.input_embed, self.decoder_hidden_dim], initializer=self.initializer)
+        self.U = self.add_weight(name='U', shape=[self.decoder_hidden_dim], initializer=self.initializer)
 
 
         if self.use_bias_constant:    # Constant bias
-            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=False)
+            self.logit_bias = self.add_weight(name='logit_bias', shape = [1], initializer=self.initializer, trainable=False)
             self.logit_bias.assign([self.bias_initial_value])
         else:    # Learnable bias with initial value
-            self.logit_bias = self.add_weight('logit_bias', [1], initializer=self.initializer, trainable=True)
+            self.logit_bias = self.add_weight(name = 'logit_bias', shape = [1], initializer=self.initializer, trainable=True)
             self.logit_bias.assign([self.bias_initial_value])
 
 

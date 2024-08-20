@@ -29,8 +29,8 @@ class Critic(keras.layers.Layer):
 
         self.h0 = tf.keras.layers.Dense(self.num_neurons, activation=tf.nn.relu, kernel_initializer=self.initializer)
 
-        self.w1  = self.add_weight("w1", shape= [self.num_neurons, 1], initializer=self.initializer, dtype=tf.float32)
-        self.b1  = self.add_weight("b1",initializer=self.initializer, dtype=tf.float32)   # shuld be self.init_baseline?
+        self.w1  = self.add_weight(name = "w1", shape= [self.num_neurons, 1], initializer=self.initializer, dtype=tf.float32)
+        self.b1  = self.add_weight(name = "b1",initializer=self.initializer, dtype=tf.float32)   # shuld be self.init_baseline?
 
         self.lr2_start = config.lr1_start  # initial learning rate
         self.lr2_decay_rate = config.lr1_decay_rate  # learning rate decay rate
@@ -72,7 +72,7 @@ class Critic(keras.layers.Layer):
         weights_ = 1.0  # weights_ = tf.exp(self.log_softmax-tf.reduce_max(self.log_softmax)) # probs / max_prob
         # self.loss2 = tf.losses.mean_squared_error(reward_ - self.avg_baseline, self.critic.predictions,
         #                                           weights=weights_)
-        self.loss2 = tf.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions) # measure difference between actual returns (adjusted for baseline) and predictions of the critic
+        self.loss2 = tf.compat.v1.losses.mean_squared_error(reward_ - actor.avg_baseline, self.predictions) # measure difference between actual returns (adjusted for baseline) and predictions of the critic
         tf.summary.scalar('loss2', self.loss2)
 
         # print("XYPS LOSS 2", self.loss2)
