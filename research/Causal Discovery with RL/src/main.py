@@ -18,7 +18,7 @@ from pytz import timezone
 from datetime import datetime
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from helpers.cam_with_pruning_cam import pruning_cam
+#from helpers.cam_with_pruning_cam import pruning_cam
 
 from data_loader import DataGenerator_read_data
 from models import Actor
