@@ -86,7 +86,7 @@ class TransformerEncoder(keras.layers.Layer):
  
         self.is_training = is_train #not config.inference_mode
 
-        self.W_embed  = self.add_weight("weights", shape= [1, self.input_dimension, self.input_embed], initializer=self.initializer, dtype=tf.float64)
+        self.W_embed  = self.add_weight(name="weights", shape= [1, self.input_dimension, self.input_embed], initializer=self.initializer, dtype=tf.float64)
         # tf.get_variable("weights", [1, self.input_dimension, self.input_embed], initializer=self.initializer)
 
         self.bn1 = tf.keras.layers.BatchNormalization(axis=2)
