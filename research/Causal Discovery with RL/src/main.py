@@ -29,7 +29,7 @@ from helpers.dir_utils import create_dir
 from helpers.log_helper import LogHelper
 from helpers.tf_utils import set_seed
 from helpers.analyze_utils import convert_graph_int_to_adj_mat, graph_prunned_by_coef, \
-                                  count_accuracy, graph_prunned_by_coef_2nd
+                                  count_accuracy, graph_prunned_by_coef_2nd, graph_prunned_by_mlp
 from helpers.lambda_utils import BIC_lambdas
 
 # Configure matplotlib for plotting
@@ -63,7 +63,7 @@ def main():
     '''
 
     # Setup for output directory and logging
-    output_dir = 'output/{}'.format(datetime.now(timezone('Asia/Hong_Kong')).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3])
+    output_dir = 'output/{}'.format(datetime.now(timezone('Europe/Rome')).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3])
     create_dir(output_dir)
     LogHelper.setup(log_path='{}/training.log'.format(output_dir),
                     level_str='INFO')
@@ -257,7 +257,7 @@ def main():
         actor.opt.apply_gradients(zip(grads_actor, actor.trainable_weights))
         actor.opt.apply_gradients(zip(grads_critic, actor.trainable_weights))
 
-        print(actor.loss1, actor.critic.loss2)
+        print("Actor loss:", actor.loss1, " Critic loss: ", actor.critic.loss2)
         # print(reward_feed[:, 0], actor.avg_baseline, actor.critic.predictions)
 
         # actor.compute_critic_loss(input_batch, reward_feed[:, 0], output, i)
