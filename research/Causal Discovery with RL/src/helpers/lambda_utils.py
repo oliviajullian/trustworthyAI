@@ -11,7 +11,7 @@ from torch import optim
 
 
 def fit_and_err(X_train, y_train):  # Working for linear case : calculate_LR ()
-    device = 'mps'
+    device = 'cuda' #device = 'mps'
 
     input_size = X_train.shape[1]
     model = PyTorchMLP2(input_size=input_size, hidden_size=64, output_size=1).to(device)
