@@ -362,6 +362,17 @@ def main():
 
             graph_batch = convert_graph_int_to_adj_mat(graph_int)
 
+            fig = plt.figure(3)
+            fig.suptitle('Iteration: {}'.format(i))
+            ax = fig.add_subplot(1, 2, 1)
+            ax.set_title('recovered_graph_before_pruning')
+            ax.imshow(np.around(graph_batch.T).astype(int), cmap=plt.cm.gray)
+            ax = fig.add_subplot(1, 2, 2)
+            ax.set_title('ground truth')
+            ax.imshow(training_set.true_graph, cmap=plt.cm.gray)
+            plt.savefig('{}/recovered_graph_iteration_pruned_before{}.png'.format(config.plot_dir, image_count))
+            plt.close()
+
             if reg_type == 'LR':
                 graph_batch_pruned = np.array(graph_prunned_by_coef(graph_batch, training_set.inputdata))
             elif reg_type == 'QR':
@@ -372,10 +383,12 @@ def main():
                 # The R codes of CAM pruning operates the graph form that (i,j)=1 indicates i-th node-> j-th node
                 # so we need to do a tranpose on the input graph and another tranpose on the output graph
                 print("gpr")
-                graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
+                # graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
+                graph_batch_pruned = np.array(graph_prunned_by_mlp(graph_batch, training_set.inputdata))
 
 
-            fig = plt.figure(3)
+
+            fig = plt.figure(4)
             fig.suptitle('Iteration: {}'.format(i))
             ax = fig.add_subplot(1, 2, 1)
             ax.set_title('recovered_graph_after_pruning')
