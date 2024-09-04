@@ -163,7 +163,7 @@ class get_Reward(object):
         y_err = X.dot(theta) - y_train
         return y_err'''
 
-
+    '''
     def plot_weights_histogram(self, model, epoch, output_dir):
         for name, param in model.named_parameters():
             if 'weight' in name:
@@ -182,7 +182,7 @@ class get_Reward(object):
 
                 plt.savefig(file_path)
                 plt.close()
-
+    '''
 
     '''
     def calculate_QR(self, X_train, y_train):  #should be called NLR
@@ -268,7 +268,7 @@ class get_Reward(object):
     '''
 
     def calculate_LR(self, X_train, y_train):
-        device = 'mps'
+        device  = 'cuda' #device = 'mps'
 
         input_size = X_train.shape[1]
         model = PyTorchMLP1(input_size=input_size).to(device)
@@ -354,7 +354,7 @@ class get_Reward(object):
 
 
     def calculate_GPR(self, X_train, y_train): #Working for linear case : calculate_LR ()
-        device = 'mps'
+        device = 'cuda' #device = 'mps'
 
         input_size = X_train.shape[1]
         model = PyTorchMLP2(input_size=input_size, hidden_size=64, output_size=1).to(device)
@@ -384,11 +384,11 @@ class get_Reward(object):
             optimizer.step()
 
             # Print progress
-            if (epoch + 1) % 100 == 0:
+            #if (epoch + 1) % 100 == 0:
                 # print(outputs)
                 #print(f'XEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
-                if np.random.uniform() < 0.05:
-                    print(f'XXEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+        if np.random.uniform() < 0.05:
+            print(f'XXEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
         #print("qr")
 
