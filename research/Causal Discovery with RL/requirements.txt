@@ -7,5 +7,7 @@ networkx
 pyyaml
 pytz
 matplotlib
-rpy2=3.1.0
-tensorflow=1.13.1
+rpy2
+tensorflow
+tensorflow-probability[tf]
+torch
