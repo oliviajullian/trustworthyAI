@@ -8,26 +8,25 @@ from rewards.Reward_BIC import PyTorchMLP2
 import torch
 from torch import nn
 from torch import optim
+import pandas as pd
+from scipy.special import softmax
 
 
 def fit_and_err(X_train, y_train):  # Working for linear case : calculate_LR ()
-    device = 'cuda' #device = 'mps'
 
+    device = 'cuda'
+
+    #TODO: add the crossentropy
     input_size = X_train.shape[1]
-    model = PyTorchMLP2(input_size=input_size, hidden_size=64, output_size=1).to(device)
+    output_size = y_train.shape[1] if len(y_train.shape)> 1 else 1
+    model = PyTorchMLP2(input_size=input_size,hidden_size=64,output_size= output_size).to(device)
 
-    # Convert to pytorch
-    X_train = torch.from_numpy(X_train.astype(np.float32)).to(device)
-    y_train = torch.from_numpy(y_train.astype(np.float32)).to(device)
-    #print ("y:trsin not unsqueee", y_train)
-    #y_train = y_train.unsqueeze(1)  # going ftom 1-D to 2-D   #if commented out, it solves the bug of loss=1.000
-    # print("X_train", X_train)
+    # Convert X_train, y_train from NumPy arrays to PyTorch tensors
+    X_train_torch = torch.from_numpy(X_train.astype(np.float32)).to(device)
+    y_train_torch = torch.from_numpy(y_train.astype(np.float32)).to(device)
 
-    #print ("y_train", y_train)
-
-
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)  # , weight_decay=1e-5)
+    criterion = nn.CrossEntropyLoss().to(device) if output_size>1 else nn.MSELoss().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
 
     # Training loop
     #model.train()
@@ -35,13 +34,11 @@ def fit_and_err(X_train, y_train):  # Working for linear case : calculate_LR ()
     for epoch in range(2):
         # print("ccc")
         optimizer.zero_grad()
-        outputs = model(X_train)
+        outputs = model(X_train_torch)
         #print("OUTPUTTT", outputs)
         #print("y_train", y_train.shape)
         #print ("Y_:TRAIN 1", y_train)
-        loss = criterion(outputs, y_train)  # _torch.view(-1, 1))
-
-
+        loss = criterion(outputs, y_train_torch)  # _torch.view(-1, 1))
 
         loss.backward()
         optimizer.step()
@@ -56,22 +53,21 @@ def fit_and_err(X_train, y_train):  # Working for linear case : calculate_LR ()
     # Making predictions (inference)
     model.eval()
     with torch.no_grad():
-        predictions = model(X_train)
+        predictions = model(X_train_torch)
 
     # Convert back to numpy
     y_pred = predictions.cpu().numpy()
+    # Convert logits to probabilities
+    probabilities = softmax(y_pred, axis=1)
 
     # Compute the error
     # y_err = y_pred.flatten() - y_train
-    y_train = y_train.cpu().numpy()
-    y_err = y_pred - y_train
-
-    #print(y_err)
-
+    y_train = y_train_torch.cpu().numpy()
+    y_err = y_train - probabilities
     return y_err
 
 
-def BIC_input_graph(X, g, reg_type='LR', score_type='BIC'):
+def BIC_input_graph(X, g, reg_type='LR', score_type='BIC',mappings=None):
     """cal BIC score for given graph"""
 
     RSS_ls = []
@@ -90,23 +86,43 @@ def BIC_input_graph(X, g, reg_type='LR', score_type='BIC'):
         y_ = X[:, [i]]  # it separates the feature corresponding to the current index i from the rest of the data.
         inds_x = list(np.abs(g[i]) > 0.1)
 
+        #TODO: get dummies 
+        df_y = pd.DataFrame(y_)
+        # Convert columns that can be converted to numeric
+        for col in df_y.columns:
+            try:
+                df_y[col] = pd.to_numeric(df_y[col])
+            except ValueError:
+                pass
+        y_dummy = pd.get_dummies(df_y).to_numpy()
+
         mlp_success = False
         if np.sum(inds_x) < 0.1:
-            y_pred = np.mean(y_)
+            y_pred = np.mean(y_dummy)
         else:
             X_ = X[:, inds_x]
+            #TODO: get dummies 
+            df_X = pd.DataFrame(X_)
+            # Convert columns that can be converted to numeric
+            for col in df_X.columns:
+                try:
+                    df_X[col] = pd.to_numeric(df_X[col])
+                except ValueError:
+                    pass
+            X_dummy = pd.get_dummies(df_X).to_numpy()
+            
             if reg_type == 'QR':
-                X_ = poly.fit_transform(X_)[:, 1:]
+                X_dummy = poly.fit_transform(X_dummy)[:, 1:]
             elif reg_type == 'GPR':
-                med_w = np.median(pdist(X_, 'euclidean'))
-                X_ = X_ / med_w
-            reg.fit(X_, y_)
-            y_pred = reg.predict(X_)
+                med_w = np.median(pdist(X_dummy, 'euclidean'))
+                X_dummy = X_dummy / med_w
+            reg.fit(X_dummy, y_dummy)
+            y_pred = reg.predict(X_dummy)
             mlp_success = True
-            err_mlp = fit_and_err(X_, y_)
-        RSSi = np.sum(np.square(y_ - y_pred))
+            err_mlp = fit_and_err(X_dummy, y_dummy)
+        RSSi = np.sum((y_dummy - y_pred)**2)
         if mlp_success:
-            RSSi_2 = np.sum(err_mlp)
+            RSSi_2 = np.sum(err_mlp**2)
         else:
             RSSi_2 = RSSi
 
@@ -122,7 +138,7 @@ def BIC_input_graph(X, g, reg_type='LR', score_type='BIC'):
         return np.sum(np.log(np.array(RSS_ls) / n) + 1e-8), np.sum(np.log(np.array(RSS_ls_2) / n) + 1e-8)
 
 
-def BIC_lambdas(X, gl=None, gu=None, gtrue=None, reg_type='LR', score_type='BIC'):
+def BIC_lambdas(X, mappings = None, gl=None, gu=None, gtrue=None, reg_type='LR', score_type='BIC'):
     """
     :param X: dataset
     :param gl: input graph to get score lower bound
@@ -132,6 +148,30 @@ def BIC_lambdas(X, gl=None, gu=None, gtrue=None, reg_type='LR', score_type='BIC'
     :param score_type:
     :return: score lower bound, score upper bound, true score (only for monitoring)
     """
+    
+
+    # Function to reverse the mapping #TODO:add it general and import in dataset_read_data?
+    def reverse_mapping(mappings):
+        reversed_mappings = {}
+        for key, mapping in mappings.items():
+            reversed_mappings[key] = {v: k for k, v in mapping.items()}
+        return reversed_mappings
+
+    # Function to apply the reversed mapping to the matrix
+    def apply_reversed_mapping(matrix, reversed_mappings):
+        matrix_reversed = matrix.astype(object)  # Convert to object type to hold strings
+        for i, key in enumerate(reversed_mappings.keys()):
+            col_idx = int(key)  # Adjust column index to zero-based (if keys are 1-based)
+            if col_idx < matrix.shape[1]:  # Ensure we're within the bounds of the matrix columns
+                matrix_reversed[:, col_idx] = [reversed_mappings[key][float(value)] for value in matrix[:, col_idx]]
+        return matrix_reversed
+
+    if mappings!= None:
+        # Reverse the mappings
+        reversed_mappings = reverse_mapping(mappings)
+
+        # Apply the reversed mapping to the matrix
+        X = apply_reversed_mapping(X, reversed_mappings)
 
     n, d = X.shape
 
@@ -151,17 +191,18 @@ def BIC_lambdas(X, gl=None, gu=None, gtrue=None, reg_type='LR', score_type='BIC'
     if gu is None:
         gu = np.zeros((d, d))
 
-    sl, sl_mlp = BIC_input_graph(X, gl, reg_type, score_type)  # Bic score for lower bound graph
-    su, su_mlp = BIC_input_graph(X, gu, reg_type, score_type)  # Bic score for upper bound graph
+    sl, sl_mlp = BIC_input_graph(X, gl, reg_type, score_type,mappings)  # Bic score for lower bound graph
+    print("sl_mlp",sl_mlp)
+    su, su_mlp = BIC_input_graph(X, gu, reg_type, score_type,mappings)  # Bic score for upper bound graph
 
     if gtrue is None:
         strue = sl - 10
         strue_mlp = sl_mlp - 10
     else:
-        print(BIC_input_graph(X, gtrue, reg_type, score_type))  # print initial BIC score for true graph
+        print(BIC_input_graph(X, gtrue, reg_type, score_type,mappings))  # print initial BIC score for true graph
         print(gtrue)
         print(bic_penalty)
-        strue, strue_mlp = BIC_input_graph(X, gtrue, reg_type, score_type) + np.sum(
+        strue, strue_mlp = BIC_input_graph(X, gtrue, reg_type, score_type,mappings) + np.sum(
             gtrue) * bic_penalty  # final score for true graph with penalty
         # notice that penalty discourages the use of more variables in the model (more edges in the graph)
         # so the score is penalized with the number of edges in the graph

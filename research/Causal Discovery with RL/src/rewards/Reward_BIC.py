@@ -21,7 +21,8 @@ import torch.optim as optim
 from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
-import numpy as np
+import pandas as pd
+from copy import deepcopy
 
 
 import matplotlib.pyplot as plt
@@ -43,11 +44,11 @@ class PyTorchMLP2(nn.Module):
 
 
 class PyTorchMLP1(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size, output_size):
         super(PyTorchMLP1, self).__init__()
         self.layer1 = nn.Linear(input_size, 64)
         self.relu = nn.ReLU()
-        self.layer2 = nn.Linear(64, 1)  
+        self.layer2 = nn.Linear(64, output_size)  
 
     def forward(self, x):
         x = self.relu(self.layer1(x))
@@ -128,13 +129,12 @@ class get_Reward(object):
         self.ones = np.ones((inputdata.shape[0], 1), dtype=np.float32)
         self.poly = PolynomialFeatures()
 
-    def cal_rewards(self, graphs, lambda1, lambda2):
+    def cal_rewards(self, graphs, lambda1, lambda2,mappings=None):
         rewards_batches = []
         #print (graphs.shape)
 
         for graphi in graphs:
-            #print (graphi.shape)
-            reward_ = self.calculate_reward_single_graph(graphi, lambda1, lambda2) # reward_ is (reward, score, cycness)
+            reward_ = self.calculate_reward_single_graph(graphi, lambda1, lambda2,mappings) # reward_ is (reward, score, cycness)
             rewards_batches.append(reward_)
 
         return np.array(rewards_batches) # contains array of (reward, score, cycness) for each graph
@@ -163,7 +163,7 @@ class get_Reward(object):
         y_err = X.dot(theta) - y_train
         return y_err'''
 
-    '''
+
     def plot_weights_histogram(self, model, epoch, output_dir):
         for name, param in model.named_parameters():
             if 'weight' in name:
@@ -182,7 +182,7 @@ class get_Reward(object):
 
                 plt.savefig(file_path)
                 plt.close()
-    '''
+
 
     '''
     def calculate_QR(self, X_train, y_train):  #should be called NLR
@@ -267,17 +267,35 @@ class get_Reward(object):
         return y_err
     '''
 
+    # Function to reverse the mapping
+    def reverse_mapping(mappings):
+        reversed_mappings = {}
+        for key, mapping in mappings.items():
+            reversed_mappings[key] = {v: k for k, v in mapping.items()}
+        return reversed_mappings
+
+    # Function to apply the reversed mapping to the matrix
+    def apply_reversed_mapping(matrix, reversed_mappings):
+        matrix_reversed = matrix.astype(object)  # Convert to object type to hold strings
+        for i, key in enumerate(reversed_mappings.keys()):
+            col_idx = int(key) - 1  # Adjust column index to zero-based (if keys are 1-based)
+            if col_idx < matrix.shape[1]:  # Ensure we're within the bounds of the matrix columns
+                matrix_reversed[:, col_idx] = [reversed_mappings[key][value] for value in matrix[:, col_idx]]
+        return matrix_reversed
+
+
     def calculate_LR(self, X_train, y_train):
-        device  = 'cuda' #device = 'mps'
+        device = 'cuda'
 
         input_size = X_train.shape[1]
-        model = PyTorchMLP1(input_size=input_size).to(device)
+        output_size = y_train.shape[1] if len(y_train.shape)> 1 else 1
+        model = PyTorchMLP1(input_size=input_size,output_size= output_size).to(device)
 
         # Convert X_train, y_train from NumPy arrays to PyTorch tensors
         X_train_torch = torch.from_numpy(X_train.astype(np.float32)).to(device)
         y_train_torch = torch.from_numpy(y_train.astype(np.float32)).to(device)
 
-        criterion = nn.MSELoss()
+        criterion = nn.CrossEntropyLoss().to(device) if output_size>1 else nn.MSELoss().to(device)
         optimizer = optim.Adam(model.parameters(), lr=0.01)
 
         # Training loop
@@ -288,7 +306,7 @@ class get_Reward(object):
             # print("ccc")
             optimizer.zero_grad()
             outputs = model(X_train_torch)
-            loss = criterion(outputs, y_train_torch.view(-1, 1))
+            loss = criterion(outputs, y_train_torch)
             loss.backward()
             optimizer.step()
 
@@ -308,7 +326,7 @@ class get_Reward(object):
         # print(y_pred.shape, y_train.shape)
 
         # Compute the error
-        y_err = y_pred.flatten() - y_train  # Ensure shapes are compatible
+        y_err = y_pred - y_train  # Ensure shapes are compatible
 
         return y_err
 
@@ -354,7 +372,7 @@ class get_Reward(object):
 
 
     def calculate_GPR(self, X_train, y_train): #Working for linear case : calculate_LR ()
-        device = 'cuda' #device = 'mps'
+        device = 'cuda'
 
         input_size = X_train.shape[1]
         model = PyTorchMLP2(input_size=input_size, hidden_size=64, output_size=1).to(device)
@@ -384,11 +402,11 @@ class get_Reward(object):
             optimizer.step()
 
             # Print progress
-            #if (epoch + 1) % 100 == 0:
+            if (epoch + 1) % 100 == 0:
                 # print(outputs)
                 #print(f'XEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
-        if np.random.uniform() < 0.05:
-            print(f'XXEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+                if np.random.uniform() < 0.05:
+                    print(f'XXEpoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
         #print("qr")
 
@@ -480,7 +498,25 @@ class get_Reward(object):
     '''
     ####### score calculations
 
-    def calculate_reward_single_graph(self, graph_batch, lambda1, lambda2):
+    def calculate_reward_single_graph(self, graph_batch, lambda1, lambda2,mappings=None):
+
+        # Function to reverse the mapping #TODO:add it general and import in dataset_read_data?
+        def reverse_mapping(mappings):
+            reversed_mappings = {}
+            for key, mapping in mappings.items():
+                reversed_mappings[key] = {v: k for k, v in mapping.items()}
+            return reversed_mappings
+
+        # Function to apply the reversed mapping to the matrix
+        def apply_reversed_mapping(matrix, reversed_mappings):
+            matrix_reversed = matrix.astype(object)  # Convert to object type to hold strings
+            for i, key in enumerate(reversed_mappings.keys()):
+                col_idx = int(key)  # Adjust column index to zero-based (if keys are 1-based)
+                if col_idx < matrix.shape[1]:  # Ensure we're within the bounds of the matrix columns
+                    matrix_reversed[:, col_idx] = [reversed_mappings[key][float(value)] for value in matrix[:, col_idx]]
+            return matrix_reversed
+
+
         graph_to_int = []
         graph_to_int2 = []
         #print("graph_batch====")
@@ -537,13 +573,40 @@ class get_Reward(object):
             else:
                 #print ("i", i)
                 cols_TrueFalse = tf.greater(tf.cast(col, tf.float32), tf.constant(0.5)) # set to True the elements of col that are greater than 0.5
+                if mappings!=None:
+                    X = deepcopy(self.inputdata)
 
-                #print(cols_TrueFalse)#cols_TrueFalse = col > 0.5
+                    # Reverse the mappings
+                    reversed_mappings = reverse_mapping(mappings)
 
-                X_train = self.inputdata[:, cols_TrueFalse] # take the columns of the input data that are True in cols_TrueFalse
-                #print ("X_train.shape", X_train.shape)
-                #print ("X_train", X_train)
-                y_train = self.inputdata[:, i] # take the i-th column of the input data
+                    # Apply the reversed mapping to the matrix
+                    X = apply_reversed_mapping(X, reversed_mappings)
+                    #TODO: get dummies of X
+                    df_X = pd.DataFrame(X)
+                    # Convert columns that can be converted to numeric
+                    for col in df_X.columns:
+                        try:
+                            df_X[col] = pd.to_numeric(df_X[col])
+                        except ValueError:
+                            pass
+                    X_train = pd.get_dummies(df_X).to_numpy()
+
+                    #TODO: get dummies of Y
+                    y = X[:, i]
+                    df_y = pd.DataFrame(y)
+                    # Convert columns that can be converted to numeric
+                    for col in df_y.columns:
+                        try:
+                            df_y[col] = pd.to_numeric(df_y[col])
+                        except ValueError:
+                            pass
+                    y_train = pd.get_dummies(df_y).to_numpy()
+
+                else:
+                    X_train = self.inputdata[:, cols_TrueFalse] # take the columns of the input data that are True in cols_TrueFalse
+
+                    y_train = self.inputdata[:, i] # take the i-th column of the input data
+
                 y_err = self.calculate_yerr(X_train, y_train)
 
 

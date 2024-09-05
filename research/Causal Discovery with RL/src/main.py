@@ -29,13 +29,12 @@ from helpers.dir_utils import create_dir
 from helpers.log_helper import LogHelper
 from helpers.tf_utils import set_seed
 from helpers.analyze_utils import convert_graph_int_to_adj_mat, graph_prunned_by_coef, \
-                                  count_accuracy, graph_prunned_by_coef_2nd, graph_prunned_by_mlp
+                                  count_accuracy, graph_prunned_by_coef_2nd
 from helpers.lambda_utils import BIC_lambdas
 
 # Configure matplotlib for plotting
 import matplotlib
 matplotlib.use('Agg')
-
 
 def main():
     # List available GPU devices
@@ -63,7 +62,7 @@ def main():
     '''
 
     # Setup for output directory and logging
-    output_dir = 'output/{}'.format(datetime.now(timezone('Europe/Rome')).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3])
+    output_dir = 'workspace/trustworthyAI/research/Causal_Discovery_with_RL/src/output/{}'.format(datetime.now(timezone('Asia/Hong_Kong')).strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3])
     create_dir(output_dir)
     LogHelper.setup(log_path='{}/training.log'.format(output_dir),
                     level_str='INFO')
@@ -106,9 +105,9 @@ def main():
     reg_type = config.reg_type
     
     if config.lambda_flag_default:
-        
-        sl, su, strue = BIC_lambdas(training_set.inputdata, None, None, training_set.true_graph.T, reg_type, score_type)
-        # print(sl, su, strue)
+
+        sl, su, strue = BIC_lambdas(training_set.inputdata,training_set.mappings, None, None, training_set.true_graph.T, reg_type, score_type)
+        print(sl, su, strue)
         # 0/0
         # sl = 1.2705835383149398
         # su = 5.729847963164211
@@ -220,7 +219,7 @@ def main():
             actor.critic.predict_rewards(encoder_output=actor.encoder_output)
 
 
-            reward_feed = callreward.cal_rewards(output, lambda1, lambda2)  #output are binary matrices coming from the encoder-decoder actor
+            reward_feed = callreward.cal_rewards(output, lambda1, lambda2,training_set.mappings)  #output are binary matrices coming from the encoder-decoder actor
 
             # max reward, max reward per batch
             max_reward = -callreward.update_scores([max_reward_score_cyc], lambda1, lambda2)[0] 
@@ -257,7 +256,7 @@ def main():
         actor.opt.apply_gradients(zip(grads_actor, actor.trainable_weights))
         actor.opt.apply_gradients(zip(grads_critic, actor.trainable_weights))
 
-        print("Actor loss:", actor.loss1, " Critic loss: ", actor.critic.loss2)
+        print(actor.loss1, actor.critic.loss2)
         # print(reward_feed[:, 0], actor.avg_baseline, actor.critic.predictions)
 
         # actor.compute_critic_loss(input_batch, reward_feed[:, 0], output, i)
@@ -362,17 +361,6 @@ def main():
 
             graph_batch = convert_graph_int_to_adj_mat(graph_int)
 
-            fig = plt.figure(3)
-            fig.suptitle('Iteration: {}'.format(i))
-            ax = fig.add_subplot(1, 2, 1)
-            ax.set_title('recovered_graph_before_pruning')
-            ax.imshow(np.around(graph_batch.T).astype(int), cmap=plt.cm.gray)
-            ax = fig.add_subplot(1, 2, 2)
-            ax.set_title('ground truth')
-            ax.imshow(training_set.true_graph, cmap=plt.cm.gray)
-            plt.savefig('{}/recovered_graph_iteration_pruned_before{}.png'.format(config.plot_dir, image_count))
-            plt.close()
-
             if reg_type == 'LR':
                 graph_batch_pruned = np.array(graph_prunned_by_coef(graph_batch, training_set.inputdata))
             elif reg_type == 'QR':
@@ -383,12 +371,10 @@ def main():
                 # The R codes of CAM pruning operates the graph form that (i,j)=1 indicates i-th node-> j-th node
                 # so we need to do a tranpose on the input graph and another tranpose on the output graph
                 print("gpr")
-                # graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
-                graph_batch_pruned = np.array(graph_prunned_by_mlp(graph_batch, training_set.inputdata))
+                graph_batch_pruned = np.transpose(pruning_cam(training_set.inputdata, np.array(graph_batch).T))
 
 
-
-            fig = plt.figure(4)
+            fig = plt.figure(3)
             fig.suptitle('Iteration: {}'.format(i))
             ax = fig.add_subplot(1, 2, 1)
             ax.set_title('recovered_graph_after_pruning')
